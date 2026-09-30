@@ -17,6 +17,8 @@ service cloud.firestore {
         && request.resource.data.role == 'client'
         && request.resource.data.principal is number
         && request.resource.data.balance is number
+        && request.resource.data.totalDeposits is number
+        && request.resource.data.totalDeposits >= request.resource.data.principal
         && request.resource.data.immediateAvailable is number
         && request.resource.data.immediateAvailable >= 0
         && request.resource.data.immediateAvailable <= request.resource.data.balance
@@ -26,7 +28,7 @@ service cloud.firestore {
         && request.resource.data.earningDay <= 31
         && request.resource.data.earningStartDate is timestamp
         && request.resource.data.keys().hasOnly([
-          'role', 'name', 'email', 'principal', 'balance', 'immediateAvailable', 'monthlyRate',
+          'role', 'name', 'email', 'principal', 'balance', 'immediateAvailable', 'totalDeposits', 'monthlyRate',
           'createdAt', 'active', 'earningDay', 'earningStartDate'
         ]);
       allow update, delete: if isAdmin();

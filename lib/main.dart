@@ -248,6 +248,7 @@ class ClientsPage extends StatelessWidget {
           final name = data['name'] as String? ?? 'Cliente';
           final principal = (data['principal'] as num?)?.toDouble() ?? 0;
           final balance = (data['balance'] as num?)?.toDouble() ?? principal;
+          final totalDeposits = (data['totalDeposits'] as num?)?.toDouble() ?? principal;
           final immediateAvailable = (data['immediateAvailable'] as num?)?.toDouble() ?? 0;
           final rate = (data['monthlyRate'] as num?)?.toDouble() ?? 0;
           final earningStart = data['earningStartDate'] is Timestamp
@@ -257,6 +258,8 @@ class ClientsPage extends StatelessWidget {
             Row(children: [CircleAvatar(backgroundColor: const Color(0xFFF0EDFC), child: Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(color: violet, fontWeight: FontWeight.bold))), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(data['email'] as String? ?? '', style: const TextStyle(fontSize: 12, color: Color(0xFF8A8796)))]))]),
             const Divider(height: 22),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SALDO ATUAL', style: TextStyle(fontSize: 9, color: Color(0xFF898697), letterSpacing: .7)), Text(formatMoney(balance), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: ink))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('RENDIMENTO MENSAL', style: TextStyle(fontSize: 9, color: Color(0xFF898697), letterSpacing: .7)), Text('${rate.toStringAsFixed(2)}% · ${formatMoney(principal * rate / 100)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: violet))])]),
+            const SizedBox(height: 8),
+            Row(children: [const Icon(Icons.savings_outlined, size: 16, color: violet), const SizedBox(width: 6), const Expanded(child: Text('Total depositado (bruto)', style: TextStyle(fontSize: 12, color: Color(0xFF777487)))), Text(formatMoney(totalDeposits), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: ink)), const SizedBox(width: 6), IconButton(tooltip: 'Ajustar histórico de depósitos', visualDensity: VisualDensity.compact, onPressed: () => editClientGrossDeposits(context, doc, principal, totalDeposits), icon: const Icon(Icons.edit_outlined, size: 17, color: violet))]),
             const SizedBox(height: 10),
             Row(children: [const Icon(Icons.event_repeat, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text(earningStart == null ? 'Virada do rendimento não configurada' : 'Virada mensal: dia ${earningStart.day.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 12, color: Color(0xFF777487)))), TextButton(onPressed: () => chooseClientEarningDate(context, doc), child: Text(earningStart == null ? 'Definir data' : 'Alterar'))]),
             const SizedBox(height: 8),
@@ -292,6 +295,17 @@ Future<void> editImmediateAvailable(BuildContext context, QueryDocumentSnapshot<
   controller.dispose();
 }
 
+Future<void> editClientGrossDeposits(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client, double principal, double current) async {
+  final controller = TextEditingController(text: current.toStringAsFixed(2).replaceAll('.', ','));
+  final saved = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Total depositado acumulado'), content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Informe a soma bruta do aporte inicial e de todos os depósitos. Saques não reduzem este indicador.'), const SizedBox(height: 12), TextField(controller: controller, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Total depositado (R\$)'))]), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Salvar'))]));
+  if (saved == true) {
+    final value = double.tryParse(controller.text.trim().replaceAll('.', '').replaceAll(',', '.'));
+    if (value == null || value < principal) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('O total depositado precisa ser pelo menos o capital aplicado atual (${formatMoney(principal)}).'))); }
+    else { try { await client.reference.update({'totalDeposits': value, 'updatedAt': FieldValue.serverTimestamp()}); } catch (_) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível atualizar o total depositado.'))); } }
+  }
+  controller.dispose();
+}
+
 String formatMoney(num value) {
   final parts = value.toStringAsFixed(2).split('.');
   final whole = parts[0].replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => '.');
@@ -308,6 +322,30 @@ DateTime nextMonthlyDate() {
 
 String formatDate(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+
+String shortDateLabel(DateTime date) {
+  const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return '${date.day} ${months[date.month - 1]} ${date.year}';
+}
+
+DateTime nextEarningDate(int earningDay, DateTime firstEarningDate) {
+  final today = DateUtils.dateOnly(DateTime.now());
+  final firstDate = DateUtils.dateOnly(firstEarningDate);
+  var year = today.year;
+  var month = today.month;
+  if (firstDate.isAfter(DateTime(year, month, 1))) {
+    year = firstDate.year;
+    month = firstDate.month;
+  }
+  for (var i = 0; i < 24; i++) {
+    final lastDay = DateTime(year, month + 1, 0).day;
+    final dueDate = DateTime(year, month, earningDay.clamp(1, lastDay).toInt());
+    if (!dueDate.isBefore(today) && !dueDate.isBefore(firstDate)) return dueDate;
+    month++;
+    if (month > 12) { month = 1; year++; }
+  }
+  return DateTime(year, month, earningDay.clamp(1, DateTime(year, month + 1, 0).day).toInt());
+}
 
 Future<void> chooseClientEarningDate(
     BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
@@ -369,6 +407,7 @@ class _NewClientSheetState extends State<_NewClientSheet> {
       await FirebaseFirestore.instance.collection('users').doc(created.user!.uid).set({
         'role': 'client', 'name': name.text.trim(), 'email': email.text.trim(),
         'principal': capital, 'balance': capital, 'monthlyRate': monthlyRate,
+        'totalDeposits': capital,
         'immediateAvailable': 0,
         'earningDay': earningStartDate.day,
         'earningStartDate': Timestamp.fromDate(earningStartDate),
@@ -450,15 +489,6 @@ class _CashPageState extends State<CashPage> {
     const SizedBox(height: 24),
     const FutureYieldSchedule(),
   ]);
-}
-
-class _YieldDue {
-  const _YieldDue(this.clientId, this.date, this.clientName, this.amount, this.dueMonth);
-  final String clientId;
-  final DateTime date;
-  final String clientName;
-  final double amount;
-  final String dueMonth;
 }
 
 class _MonthlyRow {
@@ -631,13 +661,15 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
           if (!client.exists || data == null || data['role'] != 'client') throw StateError('Cliente não encontrado.');
           final balance = (data['balance'] as num?)?.toDouble() ?? (data['principal'] as num?)?.toDouble() ?? 0;
           final principal = (data['principal'] as num?)?.toDouble() ?? balance;
+          final totalDeposits = (data['totalDeposits'] as num?)?.toDouble() ?? principal;
           final newBalance = isDeposit ? balance + value : balance - value;
           if (!isDeposit && value > balance) throw StateError('O valor ultrapassa o saldo atual do cliente (${formatMoney(balance)}).');
           final newPrincipal = isDeposit ? principal + value : (principal - value).clamp(0.0, principal).toDouble();
+          final newTotalDeposits = isDeposit ? totalDeposits + value : totalDeposits;
           final ledgerTitle = isDeposit ? 'Novo depósito' : 'Retirada lançada pelo administrador';
           final ledgerType = isDeposit ? 'credit' : 'debit';
           transaction.set(movementRef, {...movement, 'kind': isDeposit ? 'client_deposit' : 'manual_client_withdrawal', 'clientId': selectedClientId});
-          transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, if (!isDeposit) 'immediateAvailable': (((data['immediateAvailable'] as num?)?.toDouble() ?? 0) - value).clamp(0.0, newBalance).toDouble(), 'updatedAt': FieldValue.serverTimestamp()});
+          transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, 'totalDeposits': newTotalDeposits, if (!isDeposit) 'immediateAvailable': (((data['immediateAvailable'] as num?)?.toDouble() ?? 0) - value).clamp(0.0, newBalance).toDouble(), 'updatedAt': FieldValue.serverTimestamp()});
           transaction.set(ledgerRef, {'type': ledgerType, 'title': ledgerTitle, 'description': description.text.trim(), 'amount': value, 'balanceAfter': newBalance, 'date': Timestamp.fromDate(DateUtils.dateOnly(now)), 'createdAt': FieldValue.serverTimestamp(), 'source': isDeposit ? 'manual_deposit' : 'manual_withdrawal'});
         });
       } else {
@@ -778,12 +810,16 @@ class ClientHome extends StatelessWidget {
           final principal = (data['principal'] as num?)?.toDouble() ?? 0;
           final balance = (data['balance'] as num?)?.toDouble() ?? principal;
           final immediateAvailable = (data['immediateAvailable'] as num?)?.toDouble() ?? 0;
+          final totalDeposits = (data['totalDeposits'] as num?)?.toDouble() ?? principal;
           final rate = (data['monthlyRate'] as num?)?.toDouble() ?? 0;
-          return _dashboard(context, name, principal, balance, immediateAvailable, rate, data['position'] as String? ?? '');
+          final earningStartDate = data['earningStartDate'] is Timestamp ? (data['earningStartDate'] as Timestamp).toDate() : null;
+          final earningDay = (data['earningDay'] as num?)?.toInt() ?? earningStartDate?.day;
+          final nextYield = earningDay != null && earningStartDate != null && earningDay >= 1 && earningDay <= 31 ? nextEarningDate(earningDay, earningStartDate) : null;
+          return _dashboard(context, name, principal, balance, totalDeposits, immediateAvailable, rate, data['position'] as String? ?? '', nextYield);
         },
       );
 
-  Widget _dashboard(BuildContext context, String name, double principal, double balance, double immediateAvailable, double rate, String position) => ListView(
+  Widget _dashboard(BuildContext context, String name, double principal, double balance, double totalDeposits, double immediateAvailable, double rate, String position, DateTime? nextYield) => ListView(
         padding: const EdgeInsets.all(20),
         children: [
           Text('Olá, $name 👋',
@@ -839,6 +875,8 @@ class ClientHome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          card(Row(children: [const Icon(Icons.savings_outlined, color: violet), const SizedBox(width: 10), const Expanded(child: Text('Total depositado (bruto)', style: TextStyle(color: Color(0xFF777487)))), Text(formatMoney(totalDeposits), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: ink))])),
+          const SizedBox(height: 16),
           Row(children: [
             Expanded(
                 child: metric('VALOR INVESTIDO', formatMoney(principal),
@@ -853,7 +891,7 @@ class ClientHome extends StatelessWidget {
           const SizedBox(height: 12),
           card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DISPONÍVEL PARA SAQUE IMEDIATO', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: Color(0xFF898697))), const SizedBox(height: 8), Text(formatMoney(immediateAvailable.clamp(0.0, balance)), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: violet)), const SizedBox(height: 4), const Text('Para solicitar um valor maior, fale diretamente com o administrador.', style: TextStyle(fontSize: 12, color: Color(0xFF777487)))])),
           const SizedBox(height: 24),
-          sectionTitle('Próximo rendimento', '02 out 2026'),
+          sectionTitle('Próximo rendimento', nextYield == null ? 'Data não definida' : shortDateLabel(nextYield)),
           const SizedBox(height: 12),
           card(Row(children: [
             Container(
@@ -865,14 +903,14 @@ class ClientHome extends StatelessWidget {
                 child: const Icon(Icons.event_available_outlined,
                     color: violet)),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  Text('Rendimento mensal',
+                  Text(nextYield == null ? 'Rendimento mensal' : 'Crédito em ${formatDate(nextYield)}',
                       style: TextStyle(
                           fontWeight: FontWeight.bold, color: ink)),
-                  Text('Previsão de crédito',
+                  Text(nextYield == null ? 'Data não configurada pelo administrador' : 'Previsão de crédito',
                       style:
                           TextStyle(fontSize: 12, color: Color(0xFF898697))),
                 ])),
@@ -906,7 +944,7 @@ class ClientHome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          const Text('Solicitações sujeitas à aprovação do administrador.',
+          const Text('Solicitações sujeitas à aprovação do seu assessor (Junior).',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: Color(0xFF898697))),
         ],
@@ -929,7 +967,7 @@ class _WithdrawalSheetState extends State<_WithdrawalSheet> {
   double get allowedAmount => widget.immediateAvailable.clamp(0.0, widget.balance).toDouble();
   Future<void> submit() async {
     final amount = double.tryParse(amountController.text.trim().replaceAll('.', '').replaceAll(',', '.'));
-    if (amount == null || amount <= 0 || amount > allowedAmount) { setState(() => error = 'Informe um valor positivo até ${formatMoney(allowedAmount)}. Para solicitar acima desse limite, fale diretamente com o administrador.'); return; }
+    if (amount == null || amount <= 0 || amount > allowedAmount) { setState(() => error = 'Informe um valor positivo até ${formatMoney(allowedAmount)}. Para solicitar acima desse limite, fale diretamente com o seu assessor (Junior).'); return; }
     setState(() { saving = true; error = null; });
     try {
       await FirebaseFirestore.instance.collection('withdrawal_requests').add({'userId': FirebaseAuth.instance.currentUser!.uid, 'amount': amount, 'status': 'pending', 'createdAt': FieldValue.serverTimestamp()});
