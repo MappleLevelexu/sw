@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -12,9 +14,25 @@ Future<void> main() async {
   runApp(const PurpleCoreApp());
 }
 
-const ink = Color(0xFF171329);
-const violet = Color(0xFF7654E8);
-const canvas = Color(0xFFF6F5FA);
+const ink = Color(0xFFF5F0FF);
+const violet = Color(0xFF9A7AFF);
+const canvas = Color(0xFF100D18);
+const surface = Color(0xFF1B1726);
+const surfaceRaised = Color(0xFF241E32);
+const violetWash = Color(0xFF32264A);
+const muted = Color(0xFFB7AEC8);
+
+Widget glassBarSurface() => ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xD9161222),
+            border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: .08))),
+          ),
+        ),
+      ),
+    );
 
 Future<void> logout(BuildContext context) async {
   await FirebaseAuth.instance.signOut();
@@ -35,12 +53,35 @@ class PurpleCoreApp extends StatelessWidget {
         theme: ThemeData(
           useMaterial3: true,
           scaffoldBackgroundColor: canvas,
-          colorScheme: ColorScheme.fromSeed(seedColor: violet),
+          brightness: Brightness.dark,
+          colorScheme: const ColorScheme.dark(
+            primary: violet,
+            onPrimary: Colors.white,
+            secondary: Color(0xFFC4AEFF),
+            onSecondary: Color(0xFF211633),
+            surface: surface,
+            onSurface: ink,
+            error: Color(0xFFFF718A),
+            onError: Color(0xFF35101A),
+          ),
           fontFamily: 'Roboto',
-          appBarTheme: const AppBarTheme(backgroundColor: canvas, foregroundColor: ink),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.transparent,
+            foregroundColor: ink,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+          ),
+          cardTheme: CardThemeData(color: surface, surfaceTintColor: Colors.transparent),
+          dividerColor: Colors.white12,
+          popupMenuTheme: const PopupMenuThemeData(color: surfaceRaised, textStyle: TextStyle(color: ink)),
+          bottomSheetTheme: const BottomSheetThemeData(backgroundColor: surface, surfaceTintColor: Colors.transparent),
+          dialogTheme: const DialogThemeData(backgroundColor: surface, surfaceTintColor: Colors.transparent),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
-            fillColor: Colors.white,
+            fillColor: surfaceRaised,
+            hintStyle: const TextStyle(color: muted),
+            labelStyle: const TextStyle(color: muted),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           ),
@@ -124,7 +165,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 28),
                   const Text('PurpleCore', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w800, color: ink)),
                   const SizedBox(height: 8),
-                  const Text('Seu patrimônio, com clareza.', style: TextStyle(color: Color(0xFF777487), fontSize: 16)),
+                  const Text('Seu patrimônio, com clareza.', style: TextStyle(color: muted, fontSize: 16)),
                   const SizedBox(height: 38),
                   const Text('Acesse sua conta', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: ink)),
                   const SizedBox(height: 20),
@@ -143,7 +184,7 @@ class _LoginPageState extends State<LoginPage> {
                   SizedBox(width: double.infinity, height: 54, child: FilledButton(onPressed: signingIn ? null : signIn, style: FilledButton.styleFrom(backgroundColor: violet, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: signingIn ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Entrar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
                   const SizedBox(height: 24),
                   const SizedBox(height: 14),
-                  const Center(child: Text('Status do servidor: Online', textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Color(0xFF9996A6)))),
+                  const Center(child: Text('Status do servidor: Online', textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: muted))),
                 ]),
               ),
             ),
@@ -165,9 +206,10 @@ class _AdminShellState extends State<AdminShell> {
   Widget build(BuildContext context) {
     final pages = [const DashboardPage(), const ClientsPage(), const CashPage(), const RequestsPage()];
     return Scaffold(
-      appBar: AppBar(title: Row(children: [Container(width: 33, height: 33, decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(11)), child: const Icon(Icons.account_balance_wallet, color: Colors.white, size: 18)), const SizedBox(width: 10), const Text('PurpleCore', style: TextStyle(fontWeight: FontWeight.w800))]), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
+      extendBody: true,
+      appBar: AppBar(flexibleSpace: glassBarSurface(), title: Row(children: [Container(width: 33, height: 33, decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(11)), child: const Icon(Icons.account_balance_wallet, color: Colors.white, size: 18)), const SizedBox(width: 10), const Text('PurpleCore', style: TextStyle(fontWeight: FontWeight.w800))]), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
       body: SafeArea(child: IndexedStack(index: index, children: pages)),
-      bottomNavigationBar: NavigationBar(selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Caixa'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]),
+      bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0xD9161222), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Caixa'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
     );
   }
 }
@@ -195,7 +237,7 @@ class DashboardPage extends StatelessWidget {
           final expenses = actual.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
           final currentCash = openingCapital + income - expenses;
           return ListView(padding: const EdgeInsets.fromLTRB(20, 12, 20, 28), children: [
-            const Text('Bom dia, administrador 👋', style: TextStyle(color: Color(0xFF777487))),
+            const Text('Bom dia, administrador 👋', style: TextStyle(color: muted)),
             const SizedBox(height: 4), const Text('Sua mesa hoje', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, color: ink)),
             const SizedBox(height: 20),
             Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF30225E), Color(0xFF7654E8)]), borderRadius: BorderRadius.circular(25)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('CAPITAL DISPONÍVEL', style: TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 12), Text(formatMoney(currentCash), style: const TextStyle(color: Colors.white, fontSize: 31, fontWeight: FontWeight.w800)), const SizedBox(height: 16), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Capital inicial', style: TextStyle(color: Colors.white70)), Text(formatMoney(openingCapital), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]), Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => editOpeningCapital(context, openingCapital), child: const Text('Ajustar capital inicial', style: TextStyle(color: Colors.white))))])),
@@ -206,8 +248,8 @@ class DashboardPage extends StatelessWidget {
             const SizedBox(height: 24),
             sectionTitle('Transações recentes', 'Até hoje'),
             const SizedBox(height: 12),
-            if (actual.isEmpty) card(const Text('Ainda não há receitas ou despesas registradas.', style: TextStyle(color: Color(0xFF777487))))
-            else ...actual.take(5).map((doc) { final d = doc.data(); final expense = d['type'] == 'expense'; final amount = (d['amount'] as num?)?.toDouble() ?? 0; final date = (d['date'] as Timestamp).toDate(); return Padding(padding: const EdgeInsets.only(bottom: 10), child: card(Row(children: [Icon(expense ? Icons.north_east : Icons.south_west, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(d['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}', style: const TextStyle(fontSize: 11, color: Color(0xFF898697)))])), Text('${expense ? '−' : '+'} ${formatMoney(amount)}', style: TextStyle(fontWeight: FontWeight.bold, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)))]))); }),
+            if (actual.isEmpty) card(const Text('Ainda não há receitas ou despesas registradas.', style: TextStyle(color: muted)))
+            else ...actual.take(5).map((doc) { final d = doc.data(); final expense = d['type'] == 'expense'; final amount = (d['amount'] as num?)?.toDouble() ?? 0; final date = (d['date'] as Timestamp).toDate(); return Padding(padding: const EdgeInsets.only(bottom: 10), child: card(Row(children: [Icon(expense ? Icons.north_east : Icons.south_west, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(d['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}', style: const TextStyle(fontSize: 11, color: muted))])), Text('${expense ? '−' : '+'} ${formatMoney(amount)}', style: TextStyle(fontWeight: FontWeight.bold, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)))]))); }),
           ]);
         },
       );
@@ -225,18 +267,18 @@ Future<void> editOpeningCapital(BuildContext context, double currentValue) async
   controller.dispose();
 }
 
-Widget metric(String label, String value, IconData icon, Color color) => Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(19)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: color, size: 20), const SizedBox(height: 13), Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: ink)), const SizedBox(height: 4), Text(label, style: const TextStyle(fontSize: 10, letterSpacing: .7, color: Color(0xFF817E8F), fontWeight: FontWeight.w600))]));
+Widget metric(String label, String value, IconData icon, Color color) => Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: surface, borderRadius: BorderRadius.circular(19), border: Border.all(color: Colors.white.withValues(alpha: .055))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: color, size: 20), const SizedBox(height: 13), Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: ink)), const SizedBox(height: 4), Text(label, style: const TextStyle(fontSize: 10, letterSpacing: .7, color: muted, fontWeight: FontWeight.w600))]));
 Widget sectionTitle(String title, String action) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink)), Text(action, style: const TextStyle(fontSize: 12, color: violet, fontWeight: FontWeight.w600))]);
-Widget card(Widget child) => Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)), child: child);
-Widget cashLine(String label, String amount, bool positive, {bool bold = false}) => Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label, style: TextStyle(color: bold ? ink : const Color(0xFF777487), fontWeight: bold ? FontWeight.bold : FontWeight.normal)), Text(amount, style: TextStyle(color: bold ? violet : (positive ? const Color(0xFF198768) : const Color(0xFFDD6770)), fontWeight: FontWeight.w700))]));
-Widget clientRow(String name, String detail, String amount, String initials) => Row(children: [CircleAvatar(radius: 20, backgroundColor: const Color(0xFFF0EDFC), child: Text(initials, style: const TextStyle(color: violet, fontSize: 12, fontWeight: FontWeight.bold))), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), const SizedBox(height: 4), Text(detail, style: const TextStyle(fontSize: 11, color: Color(0xFF898697)))])), Text(amount, style: const TextStyle(fontWeight: FontWeight.bold, color: ink))]);
+Widget card(Widget child) => Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: surface, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withValues(alpha: .055))), child: child);
+Widget cashLine(String label, String amount, bool positive, {bool bold = false}) => Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label, style: TextStyle(color: bold ? ink : muted, fontWeight: bold ? FontWeight.bold : FontWeight.normal)), Text(amount, style: TextStyle(color: bold ? violet : (positive ? const Color(0xFF198768) : const Color(0xFFDD6770)), fontWeight: FontWeight.w700))]));
+Widget clientRow(String name, String detail, String amount, String initials) => Row(children: [CircleAvatar(radius: 20, backgroundColor: violetWash, child: Text(initials, style: const TextStyle(color: violet, fontSize: 12, fontWeight: FontWeight.bold))), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), const SizedBox(height: 4), Text(detail, style: const TextStyle(fontSize: 11, color: muted))])), Text(amount, style: const TextStyle(fontWeight: FontWeight.bold, color: ink))]);
 
 class ClientsPage extends StatelessWidget {
   const ClientsPage({super.key});
   @override
   Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(20), children: [
     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Clientes', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: ink)), FilledButton.icon(onPressed: () => editClient(context), icon: const Icon(Icons.add, size: 18), label: const Text('Novo'))]),
-    const SizedBox(height: 8), const Text('Gerencie saldos, rendimento e condições.', style: TextStyle(color: Color(0xFF777487))), const SizedBox(height: 20),
+    const SizedBox(height: 8), const Text('Gerencie saldos, rendimento e condições.', style: TextStyle(color: muted)), const SizedBox(height: 20),
     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'client').snapshots(),
       builder: (context, snapshot) {
@@ -255,17 +297,17 @@ class ClientsPage extends StatelessWidget {
               ? (data['earningStartDate'] as Timestamp).toDate()
               : null;
           return Padding(padding: const EdgeInsets.only(bottom: 12), child: card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [CircleAvatar(backgroundColor: const Color(0xFFF0EDFC), child: Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(color: violet, fontWeight: FontWeight.bold))), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(data['email'] as String? ?? '', style: const TextStyle(fontSize: 12, color: Color(0xFF8A8796)))]))]),
+            Row(children: [CircleAvatar(backgroundColor: violetWash, child: Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(color: violet, fontWeight: FontWeight.bold))), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(data['email'] as String? ?? '', style: const TextStyle(fontSize: 12, color: muted))]))]),
             const Divider(height: 22),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SALDO ATUAL', style: TextStyle(fontSize: 9, color: Color(0xFF898697), letterSpacing: .7)), Text(formatMoney(balance), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: ink))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('RENDIMENTO MENSAL', style: TextStyle(fontSize: 9, color: Color(0xFF898697), letterSpacing: .7)), Text('${rate.toStringAsFixed(2)}% · ${formatMoney(principal * rate / 100)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: violet))])]),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SALDO ATUAL', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .7)), Text(formatMoney(balance), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: ink))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('RENDIMENTO MENSAL', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .7)), Text('${rate.toStringAsFixed(2)}% · ${formatMoney(principal * rate / 100)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: violet))])]),
             const SizedBox(height: 8),
-            Row(children: [const Icon(Icons.savings_outlined, size: 16, color: violet), const SizedBox(width: 6), const Expanded(child: Text('Total depositado (bruto)', style: TextStyle(fontSize: 12, color: Color(0xFF777487)))), Text(formatMoney(totalDeposits), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: ink)), const SizedBox(width: 6), IconButton(tooltip: 'Ajustar histórico de depósitos', visualDensity: VisualDensity.compact, onPressed: () => editClientGrossDeposits(context, doc, principal, totalDeposits), icon: const Icon(Icons.edit_outlined, size: 17, color: violet))]),
+            Row(children: [const Icon(Icons.savings_outlined, size: 16, color: violet), const SizedBox(width: 6), const Expanded(child: Text('Total depositado (bruto)', style: TextStyle(fontSize: 12, color: muted))), Text(formatMoney(totalDeposits), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: ink)), const SizedBox(width: 6), IconButton(tooltip: 'Ajustar histórico de depósitos', visualDensity: VisualDensity.compact, onPressed: () => editClientGrossDeposits(context, doc, principal, totalDeposits), icon: const Icon(Icons.edit_outlined, size: 17, color: violet))]),
             const SizedBox(height: 10),
-            Row(children: [const Icon(Icons.event_repeat, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text(earningStart == null ? 'Virada do rendimento não configurada' : 'Virada mensal: dia ${earningStart.day.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 12, color: Color(0xFF777487)))), TextButton(onPressed: () => chooseClientEarningDate(context, doc), child: Text(earningStart == null ? 'Definir data' : 'Alterar'))]),
+            Row(children: [const Icon(Icons.event_repeat, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text(earningStart == null ? 'Virada do rendimento não configurada' : 'Virada mensal: dia ${earningStart.day.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 12, color: muted))), TextButton(onPressed: () => chooseClientEarningDate(context, doc), child: Text(earningStart == null ? 'Definir data' : 'Alterar'))]),
             const SizedBox(height: 8),
-            Row(children: [const Icon(Icons.account_balance_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text((data['position'] as String?)?.trim().isNotEmpty == true ? data['position'] as String : 'Posicionamento não informado', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF777487)))), TextButton(onPressed: () => editClientPosition(context, doc), child: const Text('Editar'))]),
+            Row(children: [const Icon(Icons.account_balance_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text((data['position'] as String?)?.trim().isNotEmpty == true ? data['position'] as String : 'Posicionamento não informado', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: muted))), TextButton(onPressed: () => editClientPosition(context, doc), child: const Text('Editar'))]),
             const SizedBox(height: 8),
-            Row(children: [const Icon(Icons.flash_on_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text('Disponível para saque imediato: ${formatMoney(immediateAvailable)}', style: const TextStyle(fontSize: 12, color: Color(0xFF777487)))), TextButton(onPressed: () => editImmediateAvailable(context, doc, balance), child: const Text('Definir'))]),
+            Row(children: [const Icon(Icons.flash_on_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text('Disponível para saque imediato: ${formatMoney(immediateAvailable)}', style: const TextStyle(fontSize: 12, color: muted))), TextButton(onPressed: () => editImmediateAvailable(context, doc, balance), child: const Text('Definir'))]),
           ])));
         }).toList());
       },
@@ -467,8 +509,8 @@ class _CashPageState extends State<CashPage> {
   @override
   Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(20), children: [
     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Movimentações', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, color: ink)), PopupMenuButton<String>(onSelected: (type) => addMovement(context, type), itemBuilder: (_) => const [PopupMenuItem(value: 'receipt', child: Text('Lançar receita')), PopupMenuItem(value: 'expense', child: Text('Lançar despesa / retirada'))], child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(14)), child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add, size: 18, color: Colors.white), SizedBox(width: 4), Text('Adicionar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))])))]),
-    const SizedBox(height: 4), const Text('Registre receitas e navegue pelos lançamentos por dia.', style: TextStyle(color: Color(0xFF777487))), const SizedBox(height: 16),
-    card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [IconButton(onPressed: () => setState(() => selectedDay = selectedDay.subtract(const Duration(days: 1))), icon: const Icon(Icons.chevron_left)), Column(children: [const Text('LANÇAMENTOS DO DIA', style: TextStyle(fontSize: 9, letterSpacing: .8, color: Color(0xFF898697))), const SizedBox(height: 4), Text(dateLabel(selectedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: ink))]), IconButton(onPressed: () => setState(() => selectedDay = selectedDay.add(const Duration(days: 1))), icon: const Icon(Icons.chevron_right)), IconButton(onPressed: () async { final picked = await showDatePicker(context: context, initialDate: selectedDay, firstDate: DateTime(2020), lastDate: DateTime(2100)); if (picked != null) setState(() => selectedDay = DateUtils.dateOnly(picked)); }, icon: const Icon(Icons.calendar_month_outlined, color: violet))])),
+    const SizedBox(height: 4), const Text('Registre receitas e navegue pelos lançamentos por dia.', style: TextStyle(color: muted)), const SizedBox(height: 16),
+    card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [IconButton(onPressed: () => setState(() => selectedDay = selectedDay.subtract(const Duration(days: 1))), icon: const Icon(Icons.chevron_left)), Column(children: [const Text('LANÇAMENTOS DO DIA', style: TextStyle(fontSize: 9, letterSpacing: .8, color: muted)), const SizedBox(height: 4), Text(dateLabel(selectedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: ink))]), IconButton(onPressed: () => setState(() => selectedDay = selectedDay.add(const Duration(days: 1))), icon: const Icon(Icons.chevron_right)), IconButton(onPressed: () async { final picked = await showDatePicker(context: context, initialDate: selectedDay, firstDate: DateTime(2020), lastDate: DateTime(2100)); if (picked != null) setState(() => selectedDay = DateUtils.dateOnly(picked)); }, icon: const Icon(Icons.calendar_month_outlined, color: violet))])),
     const SizedBox(height: 16),
     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('cash_movements').orderBy('date', descending: true).snapshots(), builder: (context, snapshot) {
       if (snapshot.hasError) return const Text('Não foi possível carregar o caixa. Confira as regras do Firestore.');
@@ -482,8 +524,8 @@ class _CashPageState extends State<CashPage> {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         card(Column(children: [cashLine('Receitas registradas', formatMoney(receipts), true), cashLine('Despesas registradas', formatMoney(expenses), false), const Divider(height: 18), cashLine('Receitas neste dia', formatMoney(dayTotal), true), cashLine('Despesas neste dia', formatMoney(dayExpenses), false)])),
         const SizedBox(height: 22), Text('Lançamentos · ${dateLabel(selectedDay)}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink)), const SizedBox(height: 10),
-        if (dayDocs.isEmpty) card(const Padding(padding: EdgeInsets.all(8), child: Text('Nenhum lançamento nesta data.', style: TextStyle(color: Color(0xFF777487)))))
-        else ...dayDocs.map((doc) { final d = doc.data(); final amount = (d['amount'] as num?)?.toDouble() ?? 0; final expense = d['type'] == 'expense'; final tone = expense ? const Color(0xFFE05D79) : const Color(0xFF198768); return Padding(padding: const EdgeInsets.only(bottom: 10), child: card(Row(children: [CircleAvatar(backgroundColor: expense ? const Color(0xFFFFEEF1) : const Color(0xFFE9F7F0), child: Icon(expense ? Icons.north_east : Icons.south_west, color: tone)), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(d['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('${expense ? 'Despesa' : 'Receita'} · ${dateLabel(selectedDay)}', style: const TextStyle(fontSize: 11, color: Color(0xFF898697)))])), Text('${expense ? '−' : '+'} ${formatMoney(amount)}', style: TextStyle(fontWeight: FontWeight.bold, color: tone))]))); }),
+        if (dayDocs.isEmpty) card(const Padding(padding: EdgeInsets.all(8), child: Text('Nenhum lançamento nesta data.', style: TextStyle(color: muted))))
+        else ...dayDocs.map((doc) { final d = doc.data(); final amount = (d['amount'] as num?)?.toDouble() ?? 0; final expense = d['type'] == 'expense'; final tone = expense ? const Color(0xFFE05D79) : const Color(0xFF198768); return Padding(padding: const EdgeInsets.only(bottom: 10), child: card(Row(children: [CircleAvatar(backgroundColor: expense ? const Color(0xFF3A202C) : const Color(0xFF1D342D), child: Icon(expense ? Icons.north_east : Icons.south_west, color: tone)), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(d['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('${expense ? 'Despesa' : 'Receita'} · ${dateLabel(selectedDay)}', style: const TextStyle(fontSize: 11, color: muted))])), Text('${expense ? '−' : '+'} ${formatMoney(amount)}', style: TextStyle(fontWeight: FontWeight.bold, color: tone))]))); }),
       ]);
     }),
     const SizedBox(height: 24),
@@ -602,10 +644,10 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         final monthPaidExpenses = rows.where((r) => !r.projected && r.expense).fold<double>(0, (s, r) => s + r.amount);
         final monthForecast = rows.where((r) => r.projected).fold<double>(0, (s, r) => s + r.amount);
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('RECEITAS', style: TextStyle(fontSize: 10, color: Color(0xFF898697))), const SizedBox(height: 5), Text(formatMoney(monthIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF198768)))]), Column(crossAxisAlignment: CrossAxisAlignment.center, children: [const Text('DESPESAS PAGAS', style: TextStyle(fontSize: 10, color: Color(0xFF898697))), const SizedBox(height: 5), Text(formatMoney(monthPaidExpenses), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE05D79)))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('DIVIDENDOS PREVISTOS', style: TextStyle(fontSize: 10, color: Color(0xFF898697))), const SizedBox(height: 5), Text(formatMoney(monthForecast), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE05D79)))])])),
+          card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('RECEITAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF198768)))]), Column(crossAxisAlignment: CrossAxisAlignment.center, children: [const Text('DESPESAS PAGAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPaidExpenses), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE05D79)))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('DIVIDENDOS PREVISTOS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthForecast), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE05D79)))])])),
           const SizedBox(height: 12),
-          if (rows.isEmpty) card(const Text('Nenhuma transação ou dividendo previsto para este mês.', style: TextStyle(color: Color(0xFF777487))))
-          else Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)), child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(headingRowColor: MaterialStateProperty.all(const Color(0xFFF0EDFC)), columns: const [DataColumn(label: Text('Situação')), DataColumn(label: Text('Data')), DataColumn(label: Text('Descrição')), DataColumn(label: Text('Categoria')), DataColumn(label: Text('Conta')), DataColumn(label: Text('Valor'), numeric: true), DataColumn(label: Text('Ações'))], rows: rows.map((row) {
+          if (rows.isEmpty) card(const Text('Nenhuma transação ou dividendo previsto para este mês.', style: TextStyle(color: muted)))
+          else Container(decoration: BoxDecoration(color: surface, borderRadius: BorderRadius.circular(18)), child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(headingRowColor: MaterialStateProperty.all(violetWash), columns: const [DataColumn(label: Text('Situação')), DataColumn(label: Text('Data')), DataColumn(label: Text('Descrição')), DataColumn(label: Text('Categoria')), DataColumn(label: Text('Conta')), DataColumn(label: Text('Valor'), numeric: true), DataColumn(label: Text('Ações'))], rows: rows.map((row) {
             final tone = row.projected ? const Color(0xFFEA8A3A) : row.expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70);
             return DataRow(cells: [
               DataCell(Row(children: [Icon(row.projected ? Icons.schedule : Icons.check_circle, size: 16, color: tone), const SizedBox(width: 6), Text(row.status, style: TextStyle(color: tone, fontSize: 12))])),
@@ -620,7 +662,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
   ]);
 }
 
-Widget cashBox(String label, String value, Color color) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: const Color(0xFFF8F7FB), borderRadius: BorderRadius.circular(14)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF898697))), const SizedBox(height: 4), Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color))]));
+Widget cashBox(String label, String value, Color color) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: surfaceRaised, borderRadius: BorderRadius.circular(14)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(fontSize: 11, color: muted)), const SizedBox(height: 4), Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color))]));
 void addMovement(BuildContext context, String type) => showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (_) => _NewMovementSheet(type: type));
 
 class _NewMovementSheet extends StatefulWidget {
@@ -688,7 +730,7 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
     final today = DateTime.now();
     return Padding(padding: EdgeInsets.fromLTRB(22, 24, 22, MediaQuery.of(context).viewInsets.bottom + 22), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(widget.type == 'receipt' ? 'Lançar receita' : 'Lançar despesa', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)), const SizedBox(height: 8),
-      Text('Data do lançamento: ${today.day.toString().padLeft(2, '0')}/${today.month.toString().padLeft(2, '0')}/${today.year} · hoje', style: const TextStyle(color: Color(0xFF777487))), const SizedBox(height: 16),
+      Text('Data do lançamento: ${today.day.toString().padLeft(2, '0')}/${today.month.toString().padLeft(2, '0')}/${today.year} · hoje', style: const TextStyle(color: muted)), const SizedBox(height: 16),
       ...[
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'client').snapshots(), builder: (context, snapshot) {
           if (!snapshot.hasData) return const LinearProgressIndicator();
@@ -696,7 +738,7 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
           return DropdownButtonFormField<String>(value: selectedClientId ?? '', decoration: const InputDecoration(labelText: 'Carteira / cliente (opcional)'), items: [DropdownMenuItem(value: '', child: Text(widget.type == 'expense' ? 'Despesa geral da mesa' : 'Receita geral da mesa')), ...clients.map((client) => DropdownMenuItem(value: client.id, child: Text(client.data()['name'] as String? ?? 'Cliente')))], onChanged: (id) { setState(() { selectedClientId = id == null || id.isEmpty ? null : id; selectedClientName = id == null || id.isEmpty ? null : clients.firstWhere((client) => client.id == id).data()['name'] as String? ?? 'Cliente'; if (selectedClientId != null && description.text.trim().isEmpty) description.text = widget.type == 'expense' ? 'Retirada · $selectedClientName' : 'Depósito · $selectedClientName'; }); });
         }),
         const SizedBox(height: 12),
-        if (selectedClientId != null) Text(widget.type == 'expense' ? 'Ao salvar, o valor será descontado do saldo e do limite de saque imediato do cliente.' : 'Ao salvar, o valor será somado ao saldo e ao capital aplicado; o rendimento futuro usará o novo capital.', style: const TextStyle(fontSize: 12, color: Color(0xFF777487))),
+        if (selectedClientId != null) Text(widget.type == 'expense' ? 'Ao salvar, o valor será descontado do saldo e do limite de saque imediato do cliente.' : 'Ao salvar, o valor será somado ao saldo e ao capital aplicado; o rendimento futuro usará o novo capital.', style: const TextStyle(fontSize: 12, color: muted)),
         const SizedBox(height: 12),
       ],
       TextField(controller: description, decoration: InputDecoration(labelText: widget.type == 'receipt' ? 'Descrição da receita' : 'Descrição da despesa')),
@@ -717,8 +759,8 @@ class RequestsPage extends StatelessWidget {
       if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
       final requests = snapshot.data!.docs;
       final pending = requests.where((d) => d.data()['status'] == 'pending').toList();
-      return ListView(padding: const EdgeInsets.all(20), children: [const Text('Solicitações', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: ink)), const SizedBox(height: 5), const Text('Revise os pedidos e registre os pagamentos.', style: TextStyle(color: Color(0xFF777487))), const SizedBox(height: 20), card(Row(children: [const Icon(Icons.info_outline, color: Color(0xFFE49633)), const SizedBox(width: 10), Expanded(child: Text('${pending.length} solicitações aguardando análise.', style: const TextStyle(color: Color(0xFF805C2C), fontWeight: FontWeight.w600)))])), const SizedBox(height: 14), if (requests.isEmpty) card(const Text('Ainda não há solicitações de saque.')),
-        ...requests.map((doc) { final data = doc.data(); final uid = data['userId'] as String? ?? ''; final amount = (data['amount'] as num?)?.toDouble() ?? 0; final created = data['createdAt']; final date = data['requestedDate'] as String? ?? (created is Timestamp ? formatDate(created.toDate()) : ''); final status = data['status'] as String? ?? 'pending'; final pendingRequest = status == 'pending'; final statusText = status == 'completed' ? 'Concluído' : status == 'rejected' ? 'Recusado' : 'Pendente'; final statusColor = status == 'completed' ? const Color(0xFF198768) : status == 'rejected' ? const Color(0xFFE05D79) : const Color(0xFF898697); return Padding(padding: const EdgeInsets.only(bottom: 12), child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnapshot) { final name = userSnapshot.data?.data()?['name'] as String? ?? 'Cliente'; return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const CircleAvatar(backgroundColor: Color(0xFFF0EDFC), child: Icon(Icons.person_outline, color: violet)), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('$date · $statusText', style: TextStyle(fontSize: 11, color: statusColor))])), Text(formatMoney(amount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink))]), if (status == 'completed') ...[const SizedBox(height: 8), Text('Pago: ${formatMoney((data['paidAmount'] as num?)?.toDouble() ?? amount)}${data['partial'] == true ? ' · Parcial' : ''}', style: const TextStyle(color: Color(0xFF198768), fontWeight: FontWeight.w600))] else if (pendingRequest) ...[const SizedBox(height: 15), Row(children: [Expanded(child: OutlinedButton(onPressed: () => updateWithdrawalStatus(context, doc, 'rejected'), child: const Text('Recusar'))), const SizedBox(width: 10), Expanded(child: FilledButton(onPressed: () => completeWithdrawal(context, doc, name), style: FilledButton.styleFrom(backgroundColor: violet), child: const Text('Concluir saque')))])]])); })); })
+      return ListView(padding: const EdgeInsets.all(20), children: [const Text('Solicitações', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: ink)), const SizedBox(height: 5), const Text('Revise os pedidos e registre os pagamentos.', style: TextStyle(color: muted)), const SizedBox(height: 20), card(Row(children: [const Icon(Icons.info_outline, color: Color(0xFFFFC266)), const SizedBox(width: 10), Expanded(child: Text('${pending.length} solicitações aguardando análise.', style: const TextStyle(color: Color(0xFFFFD08A), fontWeight: FontWeight.w600)))])), const SizedBox(height: 14), if (requests.isEmpty) card(const Text('Ainda não há solicitações de saque.')),
+        ...requests.map((doc) { final data = doc.data(); final uid = data['userId'] as String? ?? ''; final amount = (data['amount'] as num?)?.toDouble() ?? 0; final created = data['createdAt']; final date = data['requestedDate'] as String? ?? (created is Timestamp ? formatDate(created.toDate()) : ''); final status = data['status'] as String? ?? 'pending'; final pendingRequest = status == 'pending'; final statusText = status == 'completed' ? 'Concluído' : status == 'rejected' ? 'Recusado' : 'Pendente'; final statusColor = status == 'completed' ? const Color(0xFF198768) : status == 'rejected' ? const Color(0xFFE05D79) : muted; return Padding(padding: const EdgeInsets.only(bottom: 12), child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnapshot) { final name = userSnapshot.data?.data()?['name'] as String? ?? 'Cliente'; return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const CircleAvatar(backgroundColor: violetWash, child: Icon(Icons.person_outline, color: violet)), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('$date · $statusText', style: TextStyle(fontSize: 11, color: statusColor))])), Text(formatMoney(amount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink))]), if (status == 'completed') ...[const SizedBox(height: 8), Text('Pago: ${formatMoney((data['paidAmount'] as num?)?.toDouble() ?? amount)}${data['partial'] == true ? ' · Parcial' : ''}', style: const TextStyle(color: Color(0xFF198768), fontWeight: FontWeight.w600))] else if (pendingRequest) ...[const SizedBox(height: 15), Row(children: [Expanded(child: OutlinedButton(onPressed: () => updateWithdrawalStatus(context, doc, 'rejected'), child: const Text('Recusar'))), const SizedBox(width: 10), Expanded(child: FilledButton(onPressed: () => completeWithdrawal(context, doc, name), style: FilledButton.styleFrom(backgroundColor: violet), child: const Text('Concluir saque')))])]])); })); })
       ]);
     },
   );
@@ -776,7 +818,7 @@ void showDates(BuildContext context) => showModalBottomSheet<void>(
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('Selecione os dias liberados para seus clientes.',
-              style: TextStyle(color: Color(0xFF777487))),
+              style: TextStyle(color: muted)),
           const SizedBox(height: 18),
           Wrap(spacing: 8, children: [2, 5, 10, 15, 20, 25]
               .map((d) => FilterChip(
@@ -795,7 +837,7 @@ void showDates(BuildContext context) => showModalBottomSheet<void>(
 class ClientShell extends StatelessWidget {
   const ClientShell({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('PurpleCore', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: const ClientHome());
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(flexibleSpace: glassBarSurface(), title: const Text('PurpleCore', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: const ClientHome());
 }
 class ClientHome extends StatelessWidget {
   const ClientHome({super.key});
@@ -823,7 +865,7 @@ class ClientHome extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         children: [
           Text('Olá, $name 👋',
-              style: TextStyle(color: Color(0xFF777487))),
+              style: TextStyle(color: muted)),
           const SizedBox(height: 4),
           const Text('Seu patrimônio',
               style: TextStyle(
@@ -875,7 +917,7 @@ class ClientHome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          card(Row(children: [const Icon(Icons.savings_outlined, color: violet), const SizedBox(width: 10), const Expanded(child: Text('Total depositado (bruto)', style: TextStyle(color: Color(0xFF777487)))), Text(formatMoney(totalDeposits), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: ink))])),
+          card(Row(children: [const Icon(Icons.savings_outlined, color: violet), const SizedBox(width: 10), const Expanded(child: Text('Total depositado (bruto)', style: TextStyle(color: muted))), Text(formatMoney(totalDeposits), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: ink))])),
           const SizedBox(height: 16),
           Row(children: [
             Expanded(
@@ -887,9 +929,9 @@ class ClientHome extends StatelessWidget {
                     const Color(0xFF1D9A70))),
           ]),
           const SizedBox(height: 16),
-          card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('POSICIONAMENTO DO CAPITAL', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: Color(0xFF898697))), const SizedBox(height: 8), Text(position.trim().isEmpty ? 'Esperando alocação.' : position, style: const TextStyle(color: ink))])),
+          card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('POSICIONAMENTO DO CAPITAL', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: muted)), const SizedBox(height: 8), Text(position.trim().isEmpty ? 'Esperando alocação.' : position, style: const TextStyle(color: ink))])),
           const SizedBox(height: 12),
-          card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DISPONÍVEL PARA SAQUE IMEDIATO', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: Color(0xFF898697))), const SizedBox(height: 8), Text(formatMoney(immediateAvailable.clamp(0.0, balance)), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: violet)), const SizedBox(height: 4), const Text('Para solicitar um valor maior, fale diretamente com o administrador.', style: TextStyle(fontSize: 12, color: Color(0xFF777487)))])),
+          card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DISPONÍVEL PARA SAQUE IMEDIATO', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: muted)), const SizedBox(height: 8), Text(formatMoney(immediateAvailable.clamp(0.0, balance)), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: violet)), const SizedBox(height: 4), const Text('Para solicitar um valor maior, fale diretamente com o administrador.', style: TextStyle(fontSize: 12, color: muted))])),
           const SizedBox(height: 24),
           sectionTitle('Próximo rendimento', nextYield == null ? 'Data não definida' : shortDateLabel(nextYield)),
           const SizedBox(height: 12),
@@ -898,7 +940,7 @@ class ClientHome extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                    color: const Color(0xFFF0EDFC),
+                    color: violetWash,
                     borderRadius: BorderRadius.circular(14)),
                 child: const Icon(Icons.event_available_outlined,
                     color: violet)),
@@ -912,7 +954,7 @@ class ClientHome extends StatelessWidget {
                           fontWeight: FontWeight.bold, color: ink)),
                   Text(nextYield == null ? 'Data não configurada pelo administrador' : 'Previsão de crédito',
                       style:
-                          TextStyle(fontSize: 12, color: Color(0xFF898697))),
+                          TextStyle(fontSize: 12, color: muted)),
                 ])),
             Text('+ ${formatMoney(principal * rate / 100)}',
                 style: const TextStyle(
@@ -926,8 +968,8 @@ class ClientHome extends StatelessWidget {
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('users').doc(FirebaseAuth.instance.currentUser!.uid).collection('ledger').orderBy('date', descending: true).limit(20).snapshots(), builder: (context, history) {
             if (history.hasError) return card(const Text('Não foi possível carregar o histórico de saldo.'));
             if (!history.hasData) return card(const Center(child: CircularProgressIndicator()));
-            if (history.data!.docs.isEmpty) return card(Column(children: [cashLine('Rendimento mensal estimado', formatMoney(principal * rate / 100), true), const Divider(height: 18), const Text('Os créditos e saques concluídos aparecerão aqui.', style: TextStyle(color: Color(0xFF898697), fontSize: 12))]));
-            return card(Column(children: history.data!.docs.map((doc) { final entry = doc.data(); final dateValue = entry['date']; final date = dateValue is Timestamp ? formatDate(dateValue.toDate()) : ''; final credit = entry['type'] == 'credit'; final amount = (entry['amount'] as num?)?.toDouble() ?? 0; return Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Row(children: [Icon(credit ? Icons.add_circle_outline : Icons.remove_circle_outline, color: credit ? const Color(0xFF198768) : const Color(0xFFE05D79), size: 19), const SizedBox(width: 9), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(entry['title'] as String? ?? 'Movimentação', style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(date, style: const TextStyle(fontSize: 11, color: Color(0xFF898697)))])), Text('${credit ? '+' : '−'} ${formatMoney(amount)}', style: TextStyle(color: credit ? const Color(0xFF198768) : const Color(0xFFE05D79), fontWeight: FontWeight.bold))])); }).toList()));
+            if (history.data!.docs.isEmpty) return card(Column(children: [cashLine('Rendimento mensal estimado', formatMoney(principal * rate / 100), true), const Divider(height: 18), const Text('Os créditos e saques concluídos aparecerão aqui.', style: TextStyle(color: muted, fontSize: 12))]));
+            return card(Column(children: history.data!.docs.map((doc) { final entry = doc.data(); final dateValue = entry['date']; final date = dateValue is Timestamp ? formatDate(dateValue.toDate()) : ''; final credit = entry['type'] == 'credit'; final amount = (entry['amount'] as num?)?.toDouble() ?? 0; return Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Row(children: [Icon(credit ? Icons.add_circle_outline : Icons.remove_circle_outline, color: credit ? const Color(0xFF198768) : const Color(0xFFE05D79), size: 19), const SizedBox(width: 9), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(entry['title'] as String? ?? 'Movimentação', style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(date, style: const TextStyle(fontSize: 11, color: muted))])), Text('${credit ? '+' : '−'} ${formatMoney(amount)}', style: TextStyle(color: credit ? const Color(0xFF198768) : const Color(0xFFE05D79), fontWeight: FontWeight.bold))])); }).toList()));
           }),
           const SizedBox(height: 24),
           SizedBox(
@@ -946,7 +988,7 @@ class ClientHome extends StatelessWidget {
           const SizedBox(height: 10),
           const Text('Solicitações sujeitas à aprovação do seu assessor (Junior).',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: Color(0xFF898697))),
+              style: TextStyle(fontSize: 11, color: muted)),
         ],
       );
 }
@@ -980,5 +1022,5 @@ class _WithdrawalSheetState extends State<_WithdrawalSheet> {
   @override
   void dispose() { amountController.dispose(); super.dispose(); }
   @override
-  Widget build(BuildContext context) => Padding(padding: EdgeInsets.fromLTRB(22, 24, 22, MediaQuery.of(context).viewInsets.bottom + 22), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Solicitar saque', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)), const SizedBox(height: 8), Text('Saldo total: ${formatMoney(widget.balance)}', style: const TextStyle(color: Color(0xFF777487))), Text('Disponível para saque imediato: ${formatMoney(allowedAmount)}', style: const TextStyle(color: violet, fontWeight: FontWeight.w600)), const SizedBox(height: 18), TextField(controller: amountController, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Valor do saque (máx. ${formatMoney(allowedAmount)})', prefixIcon: const Icon(Icons.payments_outlined))), const SizedBox(height: 8), const Text('Para solicitar acima do valor liberado para saque imediato, fale diretamente com o administrador.', style: TextStyle(fontSize: 12, color: Color(0xFF777487))), if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: Color(0xFFBC4352)))), const SizedBox(height: 14), SizedBox(width: double.infinity, child: FilledButton(onPressed: saving || allowedAmount <= 0 ? null : submit, child: saving ? const CircularProgressIndicator() : const Text('Enviar solicitação')))]));
+  Widget build(BuildContext context) => Padding(padding: EdgeInsets.fromLTRB(22, 24, 22, MediaQuery.of(context).viewInsets.bottom + 22), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Solicitar saque', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)), const SizedBox(height: 8), Text('Saldo total: ${formatMoney(widget.balance)}', style: const TextStyle(color: muted)), Text('Disponível para saque imediato: ${formatMoney(allowedAmount)}', style: const TextStyle(color: violet, fontWeight: FontWeight.w600)), const SizedBox(height: 18), TextField(controller: amountController, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Valor do saque (máx. ${formatMoney(allowedAmount)})', prefixIcon: const Icon(Icons.payments_outlined))), const SizedBox(height: 8), const Text('Para solicitar acima do valor liberado para saque imediato, fale diretamente com o administrador.', style: TextStyle(fontSize: 12, color: muted)), if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: Color(0xFFBC4352)))), const SizedBox(height: 14), SizedBox(width: double.infinity, child: FilledButton(onPressed: saving || allowedAmount <= 0 ? null : submit, child: saving ? const CircularProgressIndicator() : const Text('Enviar solicitação')))]));
 }
