@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      // Client accounts and profiles are created by the authenticated administrator.
+      allow create: if isAdmin()
+        && request.resource.data.role == 'client'
+        && request.resource.data.principal is number
+        && request.resource.data.balance is number
+        && request.resource.data.immediateAvailable is number
+        && request.resource.data.immediateAvailable >= 0
+        && request.resource.data.immediateAvailable <= request.resource.data.balance
+        && request.resource.data.monthlyRate is number
+        && request.resource.data.earningDay is int
+        && request.resource.data.earningDay >= 1
+        && request.resource.data.earningDay <= 31
+        && request.resource.data.earningStartDate is timestamp
+        && request.resource.data.keys().hasOnly([
+          'role', 'name', 'email', 'principal', 'balance', 'immediateAvailable', 'monthlyRate',
+          'createdAt', 'active', 'earningDay', 'earningStartDate'
+        ]);
+      allow update, delete: if isAdmin();
+
+      match /ledger/{entryId} {
+        allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+        allow create, update, delete: if isAdmin();
+      }
+    }
+
+    match /withdrawal_requests/{requestId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.keys().hasOnly([
+          'userId', 'amount', 'status', 'createdAt'
+        ]);
+      allow update, delete: if isAdmin();
+    }
+
+    match /cash_movements/{movementId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.type in ['receipt', 'expense']
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.date is timestamp
+        && request.resource.data.keys().hasOnly([
+          'type', 'description', 'amount', 'date', 'createdAt', 'createdBy',
+          'category', 'account', 'kind', 'clientId', 'dueMonth', 'withdrawalRequestId'
+        ]);
+      allow update, delete: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
