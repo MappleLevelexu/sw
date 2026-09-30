@@ -22,12 +22,43 @@ const surfaceRaised = Color(0xFF241E32);
 const violetWash = Color(0xFF32264A);
 const muted = Color(0xFFB7AEC8);
 
+Widget purpleCoreLogo({double iconSize = 36, double titleSize = 20}) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: iconSize,
+          height: iconSize,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFA78BFA), Color(0xFF7847E8)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(iconSize * .31),
+            boxShadow: [
+              BoxShadow(
+                color: violet.withValues(alpha: .25),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Icon(Icons.account_balance_wallet_rounded,
+              color: Colors.white, size: iconSize * .56),
+        ),
+        const SizedBox(width: 10),
+        Text('PurpleCore',
+            style: TextStyle(
+                color: ink, fontSize: titleSize, fontWeight: FontWeight.w800)),
+      ],
+    );
+
 Widget glassBarSurface() => ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xD9161222),
+            color: const Color(0x66161020),
             border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: .08))),
           ),
         ),
@@ -161,9 +192,8 @@ class _LoginPageState extends State<LoginPage> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 430),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Container(width: 58, height: 58, decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(19)), child: const Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 30)),
+                  purpleCoreLogo(iconSize: 54, titleSize: 30),
                   const SizedBox(height: 28),
-                  const Text('PurpleCore', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w800, color: ink)),
                   const SizedBox(height: 8),
                   const Text('Seu patrimônio, com clareza.', style: TextStyle(color: muted, fontSize: 16)),
                   const SizedBox(height: 38),
@@ -207,9 +237,10 @@ class _AdminShellState extends State<AdminShell> {
     final pages = [const DashboardPage(), const ClientsPage(), const CashPage(), const RequestsPage()];
     return Scaffold(
       extendBody: true,
-      appBar: AppBar(flexibleSpace: glassBarSurface(), title: Row(children: [Container(width: 33, height: 33, decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(11)), child: const Icon(Icons.account_balance_wallet, color: Colors.white, size: 18)), const SizedBox(width: 10), const Text('PurpleCore', style: TextStyle(fontWeight: FontWeight.w800))]), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
-      body: SafeArea(child: IndexedStack(index: index, children: pages)),
-      bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0xD9161222), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Caixa'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
+      body: SafeArea(top: false, child: IndexedStack(index: index, children: pages)),
+      bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Caixa'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
     );
   }
 }
@@ -236,7 +267,7 @@ class DashboardPage extends StatelessWidget {
           final income = actual.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
           final expenses = actual.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
           final currentCash = openingCapital + income - expenses;
-          return ListView(padding: const EdgeInsets.fromLTRB(20, 12, 20, 28), children: [
+          return ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 12, 20, 28), children: [
             const Text('Bom dia, administrador 👋', style: TextStyle(color: muted)),
             const SizedBox(height: 4), const Text('Sua mesa hoje', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, color: ink)),
             const SizedBox(height: 20),
@@ -276,7 +307,7 @@ Widget clientRow(String name, String detail, String amount, String initials) => 
 class ClientsPage extends StatelessWidget {
   const ClientsPage({super.key});
   @override
-  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(20), children: [
+  Widget build(BuildContext context) => ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20), children: [
     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Clientes', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: ink)), FilledButton.icon(onPressed: () => editClient(context), icon: const Icon(Icons.add, size: 18), label: const Text('Novo'))]),
     const SizedBox(height: 8), const Text('Gerencie saldos, rendimento e condições.', style: TextStyle(color: muted)), const SizedBox(height: 20),
     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -507,7 +538,7 @@ class _CashPageState extends State<CashPage> {
   }
 
   @override
-  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(20), children: [
+  Widget build(BuildContext context) => ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20), children: [
     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Movimentações', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, color: ink)), PopupMenuButton<String>(onSelected: (type) => addMovement(context, type), itemBuilder: (_) => const [PopupMenuItem(value: 'receipt', child: Text('Lançar receita')), PopupMenuItem(value: 'expense', child: Text('Lançar despesa / retirada'))], child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(14)), child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add, size: 18, color: Colors.white), SizedBox(width: 4), Text('Adicionar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))])))]),
     const SizedBox(height: 4), const Text('Registre receitas e navegue pelos lançamentos por dia.', style: TextStyle(color: muted)), const SizedBox(height: 16),
     card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [IconButton(onPressed: () => setState(() => selectedDay = selectedDay.subtract(const Duration(days: 1))), icon: const Icon(Icons.chevron_left)), Column(children: [const Text('LANÇAMENTOS DO DIA', style: TextStyle(fontSize: 9, letterSpacing: .8, color: muted)), const SizedBox(height: 4), Text(dateLabel(selectedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: ink))]), IconButton(onPressed: () => setState(() => selectedDay = selectedDay.add(const Duration(days: 1))), icon: const Icon(Icons.chevron_right)), IconButton(onPressed: () async { final picked = await showDatePicker(context: context, initialDate: selectedDay, firstDate: DateTime(2020), lastDate: DateTime(2100)); if (picked != null) setState(() => selectedDay = DateUtils.dateOnly(picked)); }, icon: const Icon(Icons.calendar_month_outlined, color: violet))])),
@@ -759,7 +790,7 @@ class RequestsPage extends StatelessWidget {
       if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
       final requests = snapshot.data!.docs;
       final pending = requests.where((d) => d.data()['status'] == 'pending').toList();
-      return ListView(padding: const EdgeInsets.all(20), children: [const Text('Solicitações', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: ink)), const SizedBox(height: 5), const Text('Revise os pedidos e registre os pagamentos.', style: TextStyle(color: muted)), const SizedBox(height: 20), card(Row(children: [const Icon(Icons.info_outline, color: Color(0xFFFFC266)), const SizedBox(width: 10), Expanded(child: Text('${pending.length} solicitações aguardando análise.', style: const TextStyle(color: Color(0xFFFFD08A), fontWeight: FontWeight.w600)))])), const SizedBox(height: 14), if (requests.isEmpty) card(const Text('Ainda não há solicitações de saque.')),
+      return ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20), children: [const Text('Solicitações', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: ink)), const SizedBox(height: 5), const Text('Revise os pedidos e registre os pagamentos.', style: TextStyle(color: muted)), const SizedBox(height: 20), card(Row(children: [const Icon(Icons.info_outline, color: Color(0xFFFFC266)), const SizedBox(width: 10), Expanded(child: Text('${pending.length} solicitações aguardando análise.', style: const TextStyle(color: Color(0xFFFFD08A), fontWeight: FontWeight.w600)))])), const SizedBox(height: 14), if (requests.isEmpty) card(const Text('Ainda não há solicitações de saque.')),
         ...requests.map((doc) { final data = doc.data(); final uid = data['userId'] as String? ?? ''; final amount = (data['amount'] as num?)?.toDouble() ?? 0; final created = data['createdAt']; final date = data['requestedDate'] as String? ?? (created is Timestamp ? formatDate(created.toDate()) : ''); final status = data['status'] as String? ?? 'pending'; final pendingRequest = status == 'pending'; final statusText = status == 'completed' ? 'Concluído' : status == 'rejected' ? 'Recusado' : 'Pendente'; final statusColor = status == 'completed' ? const Color(0xFF198768) : status == 'rejected' ? const Color(0xFFE05D79) : muted; return Padding(padding: const EdgeInsets.only(bottom: 12), child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnapshot) { final name = userSnapshot.data?.data()?['name'] as String? ?? 'Cliente'; return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const CircleAvatar(backgroundColor: violetWash, child: Icon(Icons.person_outline, color: violet)), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('$date · $statusText', style: TextStyle(fontSize: 11, color: statusColor))])), Text(formatMoney(amount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink))]), if (status == 'completed') ...[const SizedBox(height: 8), Text('Pago: ${formatMoney((data['paidAmount'] as num?)?.toDouble() ?? amount)}${data['partial'] == true ? ' · Parcial' : ''}', style: const TextStyle(color: Color(0xFF198768), fontWeight: FontWeight.w600))] else if (pendingRequest) ...[const SizedBox(height: 15), Row(children: [Expanded(child: OutlinedButton(onPressed: () => updateWithdrawalStatus(context, doc, 'rejected'), child: const Text('Recusar'))), const SizedBox(width: 10), Expanded(child: FilledButton(onPressed: () => completeWithdrawal(context, doc, name), style: FilledButton.styleFrom(backgroundColor: violet), child: const Text('Concluir saque')))])]])); })); })
       ]);
     },
@@ -837,7 +868,7 @@ void showDates(BuildContext context) => showModalBottomSheet<void>(
 class ClientShell extends StatelessWidget {
   const ClientShell({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(flexibleSpace: glassBarSurface(), title: const Text('PurpleCore', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: const ClientHome());
+  Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: const ClientHome());
 }
 class ClientHome extends StatelessWidget {
   const ClientHome({super.key});
@@ -862,7 +893,7 @@ class ClientHome extends StatelessWidget {
       );
 
   Widget _dashboard(BuildContext context, String name, double principal, double balance, double totalDeposits, double immediateAvailable, double rate, String position, DateTime? nextYield) => ListView(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20),
         children: [
           Text('Olá, $name 👋',
               style: TextStyle(color: muted)),
