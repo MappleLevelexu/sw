@@ -1,4 +1,3 @@
-# purplecore_tesouraria
 
 A new Flutter project.
 
