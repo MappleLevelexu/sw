@@ -537,7 +537,7 @@ class CashPage extends StatelessWidget {
                 PopupMenuItem(value: 'receipt', child: Text('Lançar receita')),
                 PopupMenuItem(value: 'expense', child: Text('Lançar despesa / retirada')),
               ],
-              child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(14)), child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add, size: 18, color: Colors.white), SizedBox(width: 4), Text('Adicionar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]),
+              child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(14)), child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add, size: 18, color: Colors.white), SizedBox(width: 4), Text('Adicionar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))])),
             ),
           ]),
           const SizedBox(height: 4),
