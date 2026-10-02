@@ -1001,7 +1001,27 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         }
         final groupedDays = groupedRows.keys.toList()..sort();
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          card(Wrap(alignment: WrapAlignment.spaceBetween, runSpacing: 12, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('RECEITAS REALIZADAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF58D6A0)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('ENTRADAS PREVISTAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPlannedIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF58D6A0)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DESPESAS PAGAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPaidExpenses), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SAÍDAS PREVISTAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthForecast), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))])])),
+          SizedBox(
+            width: double.infinity,
+            child: card(LayoutBuilder(builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 760 ? 4 : constraints.maxWidth >= 420 ? 2 : 1;
+              final itemWidth = (constraints.maxWidth - (columns - 1) * 16) / columns;
+              Widget metricItem(String label, double value, Color color) => SizedBox(
+                width: itemWidth,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(label, style: const TextStyle(fontSize: 10, color: muted)),
+                  const SizedBox(height: 6),
+                  Text(formatMoney(value), style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+                ]),
+              );
+              return Wrap(spacing: 16, runSpacing: 16, children: [
+                metricItem('RECEITAS REALIZADAS', monthIncome, const Color(0xFF58D6A0)),
+                metricItem('ENTRADAS PREVISTAS', monthPlannedIncome, const Color(0xFF58D6A0)),
+                metricItem('DESPESAS PAGAS', monthPaidExpenses, const Color(0xFFFF718A)),
+                metricItem('SAÍDAS PREVISTAS', monthForecast, const Color(0xFFFF718A)),
+              ]);
+            })),
+          ),
           const SizedBox(height: 12),
           if (rows.isEmpty) card(const Text('Nenhuma transação ou repasse previsto para este mês.', style: TextStyle(color: muted)))
           else ...groupedDays.map((day) => _daySection(context, day, groupedRows[day]!, today)),
