@@ -240,7 +240,7 @@ class _AdminShellState extends State<AdminShell> {
       extendBodyBehindAppBar: true,
       appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
       body: SafeArea(top: false, child: IndexedStack(index: index, children: pages)),
-      bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Caixa'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
+      bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
     );
   }
 }
@@ -524,48 +524,32 @@ class _NewClientSheetState extends State<_NewClientSheet> {
   );
 }
 
-class CashPage extends StatefulWidget {
+class CashPage extends StatelessWidget {
   const CashPage({super.key});
-  @override
-  State<CashPage> createState() => _CashPageState();
-}
-class _CashPageState extends State<CashPage> {
-  DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
-
-  String dateLabel(DateTime day) {
-    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-    return '${day.day} ${months[day.month - 1]}';
-  }
-
-  @override
-  Widget build(BuildContext context) => ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20), children: [
-    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Movimentações', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, color: ink)), PopupMenuButton<String>(onSelected: (type) => addMovement(context, type), itemBuilder: (_) => const [PopupMenuItem(value: 'receipt', child: Text('Lançar receita')), PopupMenuItem(value: 'expense', child: Text('Lançar despesa / retirada'))], child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(14)), child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add, size: 18, color: Colors.white), SizedBox(width: 4), Text('Adicionar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))])))]),
-    const SizedBox(height: 4), const Text('Registre receitas e navegue pelos lançamentos por dia.', style: TextStyle(color: muted)), const SizedBox(height: 16),
-    card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [IconButton(onPressed: () => setState(() => selectedDay = selectedDay.subtract(const Duration(days: 1))), icon: const Icon(Icons.chevron_left)), Column(children: [const Text('LANÇAMENTOS DO DIA', style: TextStyle(fontSize: 9, letterSpacing: .8, color: muted)), const SizedBox(height: 4), Text(dateLabel(selectedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: ink))]), IconButton(onPressed: () => setState(() => selectedDay = selectedDay.add(const Duration(days: 1))), icon: const Icon(Icons.chevron_right)), IconButton(onPressed: () async { final picked = await showDatePicker(context: context, initialDate: selectedDay, firstDate: DateTime(2020), lastDate: DateTime(2100)); if (picked != null) setState(() => selectedDay = DateUtils.dateOnly(picked)); }, icon: const Icon(Icons.calendar_month_outlined, color: violet))])),
-    const SizedBox(height: 16),
-    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('cash_movements').orderBy('date', descending: true).snapshots(), builder: (context, snapshot) {
-      if (snapshot.hasError) return const Text('Não foi possível carregar o caixa. Confira as regras do Firestore.');
-      if (!snapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()));
-      final all = snapshot.data!.docs;
-      final receipts = all.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (sum, d) => sum + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-      final expenses = all.where((d) => d.data()['type'] == 'expense').fold<double>(0, (sum, d) => sum + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-      final dayDocs = all.where((d) { final value = d.data()['date']; if (value is! Timestamp) return false; return DateUtils.isSameDay(value.toDate(), selectedDay); }).toList();
-      final dayTotal = dayDocs.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (sum, d) => sum + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-      final dayExpenses = dayDocs.where((d) => d.data()['type'] == 'expense').fold<double>(0, (sum, d) => sum + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        card(Column(children: [cashLine('Receitas registradas', formatMoney(receipts), true), cashLine('Despesas registradas', formatMoney(expenses), false), const Divider(height: 18), cashLine('Receitas neste dia', formatMoney(dayTotal), true), cashLine('Despesas neste dia', formatMoney(dayExpenses), false)])),
-        const SizedBox(height: 22), Text('Lançamentos · ${dateLabel(selectedDay)}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink)), const SizedBox(height: 10),
-        if (dayDocs.isEmpty) card(const Padding(padding: EdgeInsets.all(8), child: Text('Nenhum lançamento nesta data.', style: TextStyle(color: muted))))
-        else ...dayDocs.map((doc) { final d = doc.data(); final amount = (d['amount'] as num?)?.toDouble() ?? 0; final expense = d['type'] == 'expense'; final tone = expense ? const Color(0xFFE05D79) : const Color(0xFF198768); return Padding(padding: const EdgeInsets.only(bottom: 10), child: card(Row(children: [CircleAvatar(backgroundColor: expense ? const Color(0xFF3A202C) : const Color(0xFF1D342D), child: Icon(expense ? Icons.north_east : Icons.south_west, color: tone)), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(d['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('${expense ? 'Despesa' : 'Receita'} · ${dateLabel(selectedDay)}', style: const TextStyle(fontSize: 11, color: muted))])), Text('${expense ? '−' : '+'} ${formatMoney(amount)}', style: TextStyle(fontWeight: FontWeight.bold, color: tone))]))); }),
-      ]);
-    }),
-    const SizedBox(height: 24),
-    const FutureYieldSchedule(),
-  ]);
+  Widget build(BuildContext context) => ListView(
+        padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 28),
+        children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('Transações', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, color: ink)),
+            PopupMenuButton<String>(
+              onSelected: (type) => addMovement(context, type),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'receipt', child: Text('Lançar receita')),
+                PopupMenuItem(value: 'expense', child: Text('Lançar despesa / retirada')),
+              ],
+              child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), decoration: BoxDecoration(color: violet, borderRadius: BorderRadius.circular(14)), child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add, size: 18, color: Colors.white), SizedBox(width: 4), Text('Adicionar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          const Text('Acompanhe receitas, despesas e repasses por data.', style: TextStyle(color: muted)),
+          const SizedBox(height: 16),
+          const FutureYieldSchedule(),
+        ],
+      );
 }
 
 class _MonthlyRow {
-  const _MonthlyRow({required this.date, required this.description, required this.category, required this.account, required this.amount, required this.expense, required this.status, this.clientId, this.dueMonth, this.projected = false});
+  const _MonthlyRow({required this.date, required this.description, required this.category, required this.account, required this.amount, required this.expense, required this.status, this.clientId, this.dueMonth, this.movementId, this.projected = false});
   final DateTime date;
   final String description;
   final String category;
@@ -575,6 +559,7 @@ class _MonthlyRow {
   final String status;
   final String? clientId;
   final String? dueMonth;
+  final String? movementId;
   final bool projected;
 }
 
@@ -597,8 +582,16 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     return '${months[month.month - 1]} ${month.year}';
   }
 
+  String _weekdayLabel(DateTime date) {
+    const weekdays = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+    return '${weekdays[date.weekday - 1]}, ${date.day}';
+  }
+
   Future<void> _markAsPaid(BuildContext context, _MonthlyRow row) async {
-    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Confirmar pagamento'), content: Text('Registrar ${formatMoney(row.amount)} como pago para ${row.description.replaceFirst('Dividendo · ', '')}?'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Marcar como pago'))]));
+    final isEarly = DateUtils.dateOnly(row.date).isAfter(DateUtils.dateOnly(DateTime.now()));
+    final clientName = row.description.replaceFirst('Dividendo · ', '');
+    final actionLabel = isEarly ? 'Fazer repasse agora' : 'Marcar como pago';
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: Text(isEarly ? 'Antecipar repasse?' : 'Confirmar repasse'), content: Text('Registrar ${formatMoney(row.amount)} para $clientName agora? A previsão original é ${formatDate(row.date)}.'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(actionLabel))]));
     if (confirmed != true || row.clientId == null || row.dueMonth == null) return;
     try {
       final movementId = 'yield_${row.clientId}_${row.dueMonth}';
@@ -628,10 +621,78 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     }
   }
 
+  Future<void> _settleScheduledMovement(BuildContext context, _MonthlyRow row) async {
+    if (row.movementId == null) return;
+    final today = DateUtils.dateOnly(DateTime.now());
+    final isReceipt = !row.expense;
+    final action = isReceipt ? 'Confirmar recebimento' : 'Marcar como pago';
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: Text(isReceipt ? 'Confirmar recebimento?' : 'Confirmar pagamento?'),
+      content: Text('Registrar ${formatMoney(row.amount)} de “${row.description}” como ${isReceipt ? 'recebido' : 'pago'} hoje? A data prevista era ${formatDate(row.date)}.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(action))],
+    ));
+    if (confirmed != true) return;
+    try {
+      final ref = FirebaseFirestore.instance.collection('cash_movements').doc(row.movementId);
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(ref);
+        if (!snapshot.exists) throw StateError('Lançamento não encontrado.');
+        final data = snapshot.data() ?? <String, dynamic>{};
+        if (data['status'] == 'paid' || data['status'] == 'received') throw StateError('Este lançamento já foi concluído.');
+        transaction.update(ref, {
+          'scheduledDate': Timestamp.fromDate(DateUtils.dateOnly(row.date)),
+          'date': Timestamp.fromDate(today),
+          'status': isReceipt ? 'received' : 'paid',
+          'settledAt': FieldValue.serverTimestamp(),
+          'settledBy': FirebaseAuth.instance.currentUser!.uid,
+        });
+      });
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isReceipt ? 'Recebimento confirmado no caixa.' : 'Despesa marcada como paga no caixa.')));
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Não foi possível concluir o lançamento: $error')));
+    }
+  }
+
+  Widget _daySection(BuildContext context, DateTime date, List<_MonthlyRow> rows, DateTime today) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(padding: const EdgeInsets.only(left: 4, bottom: 8), child: Text(_weekdayLabel(date), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink))),
+        ...rows.map((row) {
+          final tone = row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0);
+          final iconBackground = row.expense ? const Color(0xFF3A202C) : const Color(0xFF1D342D);
+          final hasAction = row.projected || (row.date.isAfter(today) && row.movementId != null);
+          final actionLabel = row.projected
+              ? (DateUtils.dateOnly(row.date).isAfter(today) ? 'Fazer repasse antes' : 'Marcar como pago')
+              : (row.expense ? 'Marcar como pago' : 'Confirmar recebimento');
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: card(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              CircleAvatar(backgroundColor: row.projected ? violetWash : iconBackground, child: Icon(row.projected ? Icons.payments_outlined : row.expense ? Icons.north_east : Icons.south_west, color: row.projected ? violet : tone)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(row.description, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)),
+                const SizedBox(height: 3),
+                Text('${row.category} · ${row.status}', style: const TextStyle(fontSize: 11, color: muted)),
+                if (hasAction) TextButton.icon(
+                  onPressed: () => row.projected ? _markAsPaid(context, row) : _settleScheduledMovement(context, row),
+                  icon: Icon(row.projected && DateUtils.dateOnly(row.date).isAfter(today) ? Icons.bolt : Icons.check_circle_outline, size: 16),
+                  label: Text(actionLabel),
+                  style: TextButton.styleFrom(foregroundColor: violet, visualDensity: VisualDensity.compact, padding: const EdgeInsets.only(left: 0, right: 8)),
+                ),
+              ])),
+              const SizedBox(width: 8),
+              Text('${row.expense ? '−' : '+'} ${formatMoney(row.amount)}', style: TextStyle(fontWeight: FontWeight.w800, color: row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0))),
+            ])),
+          );
+        }),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    const Text('Transações do caixa', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: ink)),
-    const SizedBox(height: 10),
+    const SizedBox(height: 4),
     card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left, color: violet)), Text(_monthLabel(), style: const TextStyle(fontWeight: FontWeight.bold, color: violet)), IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right, color: violet))])),
     const SizedBox(height: 12),
     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('cash_movements').orderBy('date', descending: true).snapshots(), builder: (context, movementSnapshot) {
@@ -653,7 +714,9 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final date = dateValue.toDate();
           if (date.isBefore(monthStart) || !date.isBefore(nextMonth)) continue;
           final expense = data['type'] == 'expense';
-          rows.add(_MonthlyRow(date: date, description: data['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: 'Realizada'));
+          final completed = data['status'] == 'paid' || data['status'] == 'received';
+          final isScheduled = date.isAfter(today) && !completed;
+          rows.add(_MonthlyRow(date: date, description: data['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: completed ? (expense ? 'Pago' : 'Recebida') : isScheduled ? 'Programada' : 'Realizada', movementId: doc.id));
         }
         for (final client in clientSnapshot.data!.docs) {
           final data = client.data();
@@ -670,23 +733,21 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final projectedAmount = principal * rate / 100;
           rows.add(_MonthlyRow(date: dueDate, description: 'Dividendo · ${data['name'] as String? ?? 'Cliente'}', category: 'Dividendos', account: 'Mesa Principal', amount: projectedAmount, expense: true, status: dueDate.isBefore(today) ? 'Atrasada' : DateUtils.isSameDay(dueDate, today) ? 'Vence hoje' : 'Prevista', clientId: client.id, dueMonth: dueMonth, projected: true));
         }
-        rows.sort((a, b) => b.date.compareTo(a.date));
+        rows.sort((a, b) => a.date.compareTo(b.date));
         final monthIncome = rows.where((r) => !r.projected && !r.expense).fold<double>(0, (s, r) => s + r.amount);
-        final monthPaidExpenses = rows.where((r) => !r.projected && r.expense).fold<double>(0, (s, r) => s + r.amount);
-        final monthForecast = rows.where((r) => r.projected).fold<double>(0, (s, r) => s + r.amount);
+        final monthPaidExpenses = rows.where((r) => !r.projected && r.expense && !r.date.isAfter(today)).fold<double>(0, (s, r) => s + r.amount);
+        final monthForecast = rows.where((r) => r.expense && (r.projected || r.date.isAfter(today))).fold<double>(0, (s, r) => s + r.amount);
+        final groupedRows = <DateTime, List<_MonthlyRow>>{};
+        for (final row in rows) {
+          final day = DateUtils.dateOnly(row.date);
+          groupedRows.putIfAbsent(day, () => <_MonthlyRow>[]).add(row);
+        }
+        final groupedDays = groupedRows.keys.toList()..sort();
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('RECEITAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF198768)))]), Column(crossAxisAlignment: CrossAxisAlignment.center, children: [const Text('DESPESAS PAGAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPaidExpenses), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE05D79)))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('DIVIDENDOS PREVISTOS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthForecast), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE05D79)))])])),
+          card(Wrap(alignment: WrapAlignment.spaceBetween, runSpacing: 12, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('RECEITAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF58D6A0)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DESPESAS PAGAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPaidExpenses), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SAÍDAS PREVISTAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthForecast), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))])])),
           const SizedBox(height: 12),
-          if (rows.isEmpty) card(const Text('Nenhuma transação ou dividendo previsto para este mês.', style: TextStyle(color: muted)))
-          else Container(decoration: BoxDecoration(color: surface, borderRadius: BorderRadius.circular(18)), child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(headingRowColor: MaterialStateProperty.all(violetWash), columns: const [DataColumn(label: Text('Situação')), DataColumn(label: Text('Data')), DataColumn(label: Text('Descrição')), DataColumn(label: Text('Categoria')), DataColumn(label: Text('Conta')), DataColumn(label: Text('Valor'), numeric: true), DataColumn(label: Text('Ações'))], rows: rows.map((row) {
-            final tone = row.projected ? const Color(0xFFEA8A3A) : row.expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70);
-            return DataRow(cells: [
-              DataCell(Row(children: [Icon(row.projected ? Icons.schedule : Icons.check_circle, size: 16, color: tone), const SizedBox(width: 6), Text(row.status, style: TextStyle(color: tone, fontSize: 12))])),
-              DataCell(Text(formatDate(row.date))), DataCell(Text(row.description)), DataCell(Text(row.category)), DataCell(Text(row.account)),
-              DataCell(Text('${row.expense ? '−' : '+'} ${formatMoney(row.amount)}', style: TextStyle(color: row.expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70), fontWeight: FontWeight.bold))),
-              DataCell(row.projected ? PopupMenuButton<String>(tooltip: 'Ações', onSelected: (action) { if (action == 'paid') _markAsPaid(context, row); }, itemBuilder: (_) => [PopupMenuItem(value: 'paid', enabled: !row.date.isAfter(today), child: const Text('Marcar como pago'))]) : IconButton(tooltip: 'Detalhes', onPressed: () => showDialog<void>(context: context, builder: (_) => AlertDialog(title: Text(row.description), content: Text('${row.category}\n${row.account}\n${formatDate(row.date)}\n${formatMoney(row.amount)}'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fechar'))])), icon: const Icon(Icons.more_vert))),
-            ]);
-          }).toList()))),
+          if (rows.isEmpty) card(const Text('Nenhuma transação ou repasse previsto para este mês.', style: TextStyle(color: muted)))
+          else ...groupedDays.map((day) => _daySection(context, day, groupedRows[day]!, today)),
         ]);
       });
     }),
