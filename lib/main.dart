@@ -239,8 +239,31 @@ class _AdminShellState extends State<AdminShell> {
       extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
-      body: SafeArea(top: false, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1200), child: IndexedStack(index: index, children: pages)))),
-      bottomNavigationBar: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 960), child: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))))),
+      body: SafeArea(top: false, child: SizedBox.expand(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1200), child: IndexedStack(index: index, children: pages))))),
+      bottomNavigationBar: Container(
+        width: double.infinity,
+        alignment: Alignment.center,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 960),
+          child: ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: NavigationBar(
+                backgroundColor: const Color(0x66161020),
+                indicatorColor: violet.withValues(alpha: .22),
+                selectedIndex: index,
+                onDestinationSelected: (v) => setState(() => index = v),
+                destinations: const [
+                  NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'),
+                  NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'),
+                  NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'),
+                  NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1120,7 +1143,7 @@ void showDates(BuildContext context) => showModalBottomSheet<void>(
 class ClientShell extends StatelessWidget {
   const ClientShell({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: SafeArea(top: false, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1080), child: const ClientHome()))));
+  Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: SafeArea(top: false, child: SizedBox.expand(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1080), child: const ClientHome())))));
 }
 class ClientHome extends StatelessWidget {
   const ClientHome({super.key});
