@@ -259,6 +259,16 @@ class DashboardPage extends StatelessWidget {
         builder: (context, movementSnapshot) {
           if (movementSnapshot.hasError) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Erro ao carregar transações. Publique as regras atualizadas do Firestore.')));
           if (!movementSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'client').snapshots(),
+            builder: (context, clientSnapshot) {
+              if (clientSnapshot.hasError) return const Center(child: Text('Erro ao carregar previsões dos clientes.'));
+              if (!clientSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance.collection('cash_recurring').where('active', isEqualTo: true).snapshots(),
+                builder: (context, recurringSnapshot) {
+                  if (recurringSnapshot.hasError) return const Center(child: Text('Erro ao carregar previsões recorrentes.'));
+                  if (!recurringSnapshot.hasData) return const Center(child: CircularProgressIndicator());
           final now = DateTime.now();
           final actual = movementSnapshot.data!.docs.where((doc) {
             final data = doc.data();
@@ -273,8 +283,50 @@ class DashboardPage extends StatelessWidget {
             final date = data['date'];
             return date is Timestamp && (date.toDate().isAfter(now) || data['status'] == 'scheduled');
           }).toList();
-          final plannedIncome = planned.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-          final plannedExpenses = planned.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
+          var plannedIncome = planned.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
+          var plannedExpenses = planned.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
+          final monthStart = DateTime(now.year, now.month);
+          final nextMonth = DateTime(now.year, now.month + 1);
+          final paidYieldKeys = <String>{};
+          final paidRecurringKeys = <String>{};
+          for (final doc in movementSnapshot.data!.docs) {
+            final data = doc.data();
+            if (data['clientId'] is String && data['dueMonth'] is String) paidYieldKeys.add('${data['clientId']}_${data['dueMonth']}');
+            if (data['recurrenceId'] is String && data['dueMonth'] is String) paidRecurringKeys.add('${data['recurrenceId']}_${data['dueMonth']}');
+          }
+          int dueDay(int year, int month, int day) => DateTime(year, month + 1, 0).day < day ? DateTime(year, month + 1, 0).day : day;
+          final dueMonth = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+          for (final clientDoc in clientSnapshot.data!.docs) {
+            final data = clientDoc.data();
+            if (data['active'] == false || data['earningDay'] is! num || data['earningStartDate'] is! Timestamp || paidYieldKeys.contains('${clientDoc.id}_$dueMonth')) continue;
+            final earningDay = (data['earningDay'] as num).toInt();
+            if (earningDay < 1 || earningDay > 31) continue;
+            final dueDate = DateTime(now.year, now.month, dueDay(now.year, now.month, earningDay));
+            if (dueDate.isBefore(DateUtils.dateOnly((data['earningStartDate'] as Timestamp).toDate())) || dueDate.isBefore(monthStart) || !dueDate.isBefore(nextMonth)) continue;
+            final principal = (data['principal'] as num?)?.toDouble() ?? 0;
+            final rate = (data['monthlyRate'] as num?)?.toDouble() ?? 0;
+            plannedExpenses += principal * rate / 100;
+          }
+          for (final recurringDoc in recurringSnapshot.data!.docs) {
+            final data = recurringDoc.data();
+            final startValue = data['date'];
+            if (startValue is! Timestamp) continue;
+            final start = DateUtils.dateOnly(startValue.toDate());
+            final offset = (now.year - start.year) * 12 + now.month - start.month;
+            final mode = data['repeatMode'] as String? ?? 'temporary';
+            final count = (data['occurrenceCount'] as num?)?.toInt();
+            if (offset < 0 || (mode == 'temporary' && (count == null || offset >= count))) continue;
+            final day = dueDay(now.year, now.month, start.day);
+            final dueDate = DateTime(now.year, now.month, day);
+            final key = '${recurringDoc.id}_$dueMonth';
+            if (dueDate.isBefore(start) || dueDate.isBefore(monthStart) || !dueDate.isBefore(nextMonth) || paidRecurringKeys.contains(key)) continue;
+            final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+            if (data['type'] == 'expense') {
+              plannedExpenses += amount;
+            } else {
+              plannedIncome += amount;
+            }
+          }
           final projectedCash = currentCash + plannedIncome - plannedExpenses;
           return ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 12, 20, 28), children: [
             const Text('Bom dia, administrador 👋', style: TextStyle(color: muted)),
@@ -293,6 +345,10 @@ class DashboardPage extends StatelessWidget {
             if (actual.isEmpty) card(const Text('Ainda não há receitas ou despesas registradas.', style: TextStyle(color: muted)))
             else ...actual.take(5).map((doc) { final d = doc.data(); final expense = d['type'] == 'expense'; final amount = (d['amount'] as num?)?.toDouble() ?? 0; final date = (d['date'] as Timestamp).toDate(); return Padding(padding: const EdgeInsets.only(bottom: 10), child: card(Row(children: [Icon(expense ? Icons.north_east : Icons.south_west, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(d['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}', style: const TextStyle(fontSize: 11, color: muted))])), Text('${expense ? '−' : '+'} ${formatMoney(amount)}', style: TextStyle(fontWeight: FontWeight.bold, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)))]))); }),
           ]);
+                },
+              );
+            },
+          );
         },
       );
     },
