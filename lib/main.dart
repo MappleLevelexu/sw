@@ -261,12 +261,21 @@ class DashboardPage extends StatelessWidget {
           if (!movementSnapshot.hasData) return const Center(child: CircularProgressIndicator());
           final now = DateTime.now();
           final actual = movementSnapshot.data!.docs.where((doc) {
-            final date = doc.data()['date'];
-            return date is Timestamp && !date.toDate().isAfter(now);
+            final data = doc.data();
+            final date = data['date'];
+            return date is Timestamp && !date.toDate().isAfter(now) && data['status'] != 'scheduled';
           }).toList();
           final income = actual.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
           final expenses = actual.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
           final currentCash = openingCapital + income - expenses;
+          final planned = movementSnapshot.data!.docs.where((doc) {
+            final data = doc.data();
+            final date = data['date'];
+            return date is Timestamp && (date.toDate().isAfter(now) || data['status'] == 'scheduled');
+          }).toList();
+          final plannedIncome = planned.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
+          final plannedExpenses = planned.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
+          final projectedCash = currentCash + plannedIncome - plannedExpenses;
           return ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 12, 20, 28), children: [
             const Text('Bom dia, administrador 👋', style: TextStyle(color: muted)),
             const SizedBox(height: 4), const Text('Sua mesa hoje', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, color: ink)),
@@ -274,6 +283,8 @@ class DashboardPage extends StatelessWidget {
             Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF30225E), Color(0xFF7654E8)]), borderRadius: BorderRadius.circular(25)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('CAPITAL DISPONÍVEL', style: TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 12), Text(formatMoney(currentCash), style: const TextStyle(color: Colors.white, fontSize: 31, fontWeight: FontWeight.w800)), const SizedBox(height: 16), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Capital inicial', style: TextStyle(color: Colors.white70)), Text(formatMoney(openingCapital), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]), Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => editOpeningCapital(context, openingCapital), child: const Text('Ajustar capital inicial', style: TextStyle(color: Colors.white))))])),
             const SizedBox(height: 16),
             Row(children: [Expanded(child: metric('RECEITAS REALIZADAS', formatMoney(income), Icons.south_west, const Color(0xFF1D9A70))), const SizedBox(width: 12), Expanded(child: metric('DESPESAS REALIZADAS', formatMoney(expenses), Icons.north_east, const Color(0xFFE05D79)))]),
+            const SizedBox(height: 16),
+            card(Column(children: [cashLine('Entradas previstas', '+ ${formatMoney(plannedIncome)}', true), cashLine('Saídas previstas', '− ${formatMoney(plannedExpenses)}', false), const Divider(height: 18), cashLine('Saldo após lançamentos previstos', formatMoney(projectedCash), projectedCash >= 0, bold: true)])),
             const SizedBox(height: 16),
             card(Column(children: [cashLine('Capital inicial', formatMoney(openingCapital), true), cashLine('Receitas realizadas', '+ ${formatMoney(income)}', true), cashLine('Despesas realizadas', '− ${formatMoney(expenses)}', false), const Divider(height: 22), cashLine('Caixa disponível', formatMoney(currentCash), currentCash >= 0, bold: true)])),
             const SizedBox(height: 24),
@@ -526,6 +537,7 @@ class _NewClientSheetState extends State<_NewClientSheet> {
 
 class CashPage extends StatelessWidget {
   const CashPage({super.key});
+  @override
   Widget build(BuildContext context) => ListView(
         padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 28),
         children: [
@@ -549,7 +561,7 @@ class CashPage extends StatelessWidget {
 }
 
 class _MonthlyRow {
-  const _MonthlyRow({required this.date, required this.description, required this.category, required this.account, required this.amount, required this.expense, required this.status, this.clientId, this.dueMonth, this.movementId, this.projected = false});
+  const _MonthlyRow({required this.date, required this.description, required this.category, required this.account, required this.amount, required this.expense, required this.status, this.clientId, this.dueMonth, this.movementId, this.recurringId, this.projected = false});
   final DateTime date;
   final String description;
   final String category;
@@ -560,6 +572,7 @@ class _MonthlyRow {
   final String? clientId;
   final String? dueMonth;
   final String? movementId;
+  final String? recurringId;
   final bool projected;
 }
 
@@ -588,6 +601,10 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
   }
 
   Future<void> _markAsPaid(BuildContext context, _MonthlyRow row) async {
+    if (row.recurringId != null && row.dueMonth != null) {
+      await _settleRecurring(context, row);
+      return;
+    }
     final isEarly = DateUtils.dateOnly(row.date).isAfter(DateUtils.dateOnly(DateTime.now()));
     final clientName = row.description.replaceFirst('Dividendo · ', '');
     final actionLabel = isEarly ? 'Fazer repasse agora' : 'Marcar como pago';
@@ -621,6 +638,51 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     }
   }
 
+  Future<void> _settleRecurring(BuildContext context, _MonthlyRow row) async {
+    final isEarly = DateUtils.dateOnly(row.date).isAfter(DateUtils.dateOnly(DateTime.now()));
+    final action = row.expense ? 'Marcar como pago' : 'Marcar como recebido';
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: Text(isEarly ? 'Concluir lançamento antes da data?' : 'Concluir lançamento?'),
+      content: Text('Registrar ${formatMoney(row.amount)} de “${row.description}” ${row.expense ? 'como pago' : 'como recebido'} agora? A data prevista era ${formatDate(row.date)}.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(action))],
+    ));
+    if (confirmed != true || row.recurringId == null || row.dueMonth == null) return;
+    try {
+      final movementRef = FirebaseFirestore.instance.collection('cash_movements').doc('repeat_${row.recurringId}_${row.dueMonth}');
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final existing = await transaction.get(movementRef);
+        if (existing.exists) throw StateError('Este lançamento recorrente já foi concluído.');
+        transaction.set(movementRef, {
+          'type': row.expense ? 'expense' : 'receipt', 'kind': 'recurring_payment',
+          'description': row.description, 'category': row.category, 'account': row.account,
+          'amount': row.amount, 'date': Timestamp.fromDate(DateUtils.dateOnly(DateTime.now())),
+          'scheduledDate': Timestamp.fromDate(DateUtils.dateOnly(row.date)),
+          'createdAt': FieldValue.serverTimestamp(), 'createdBy': FirebaseAuth.instance.currentUser!.uid,
+          'recurrenceId': row.recurringId, 'dueMonth': row.dueMonth,
+          'status': row.expense ? 'paid' : 'received',
+        });
+      });
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(row.expense ? 'Despesa recorrente paga.' : 'Receita recorrente recebida.')));
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Não foi possível concluir o lançamento: $error')));
+    }
+  }
+
+  Future<void> _stopRecurring(BuildContext context, String recurringId) async {
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Encerrar repetição?'),
+      content: const Text('Os próximos lançamentos deixarão de aparecer. Os que já foram pagos permanecem no histórico.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Continuar repetindo')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Encerrar'))],
+    ));
+    if (confirmed != true) return;
+    try {
+      await FirebaseFirestore.instance.collection('cash_recurring').doc(recurringId).update({'active': false, 'endedAt': FieldValue.serverTimestamp()});
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Repetição encerrada.')));
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Não foi possível encerrar a repetição: $error')));
+    }
+  }
+
   Future<void> _settleScheduledMovement(BuildContext context, _MonthlyRow row) async {
     if (row.movementId == null) return;
     final today = DateUtils.dateOnly(DateTime.now());
@@ -639,6 +701,39 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         if (!snapshot.exists) throw StateError('Lançamento não encontrado.');
         final data = snapshot.data() ?? <String, dynamic>{};
         if (data['status'] == 'paid' || data['status'] == 'received') throw StateError('Este lançamento já foi concluído.');
+        final clientId = data['clientId'] as String?;
+        final kind = data['kind'] as String?;
+        final isClientDeposit = clientId != null && kind == 'client_deposit';
+        final isClientWithdrawal = clientId != null && kind == 'manual_client_withdrawal';
+        DocumentSnapshot<Map<String, dynamic>>? clientSnapshot;
+        if (isClientDeposit || isClientWithdrawal) {
+          clientSnapshot = await transaction.get(FirebaseFirestore.instance.collection('users').doc(clientId));
+          if (!clientSnapshot.exists || clientSnapshot.data() == null) throw StateError('Cliente não encontrado.');
+        }
+        if (clientSnapshot != null) {
+          final clientRef = FirebaseFirestore.instance.collection('users').doc(clientId);
+          final clientData = clientSnapshot.data()!;
+          final balance = (clientData['balance'] as num?)?.toDouble() ?? (clientData['principal'] as num?)?.toDouble() ?? 0;
+          final principal = (clientData['principal'] as num?)?.toDouble() ?? balance;
+          final immediate = (clientData['immediateAvailable'] as num?)?.toDouble() ?? 0;
+          final newBalance = isClientDeposit ? balance + row.amount : balance - row.amount;
+          if (isClientWithdrawal && row.amount > balance) throw StateError('O valor ultrapassa o saldo atual do cliente.');
+          final newPrincipal = isClientDeposit ? principal + row.amount : (principal - row.amount).clamp(0.0, principal).toDouble();
+          transaction.update(clientRef, {
+            'balance': newBalance, 'principal': newPrincipal,
+            if (isClientDeposit) 'totalDeposits': ((clientData['totalDeposits'] as num?)?.toDouble() ?? principal) + row.amount,
+            if (isClientWithdrawal) 'immediateAvailable': (immediate - row.amount).clamp(0.0, newBalance).toDouble(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          final ledgerId = '${isClientDeposit ? 'manual_deposit' : 'manual_withdrawal'}_${row.movementId}';
+          transaction.set(clientRef.collection('ledger').doc(ledgerId), {
+            'type': isClientDeposit ? 'credit' : 'debit',
+            'title': isClientDeposit ? 'Depósito recebido' : 'Retirada paga pelo administrador',
+            'description': row.description, 'amount': row.amount, 'balanceAfter': newBalance,
+            'date': Timestamp.fromDate(today), 'createdAt': FieldValue.serverTimestamp(),
+            'source': isClientDeposit ? 'manual_deposit' : 'manual_withdrawal',
+          });
+        }
         transaction.update(ref, {
           'scheduledDate': Timestamp.fromDate(DateUtils.dateOnly(row.date)),
           'date': Timestamp.fromDate(today),
@@ -661,10 +756,13 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         ...rows.map((row) {
           final tone = row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0);
           final iconBackground = row.expense ? const Color(0xFF3A202C) : const Color(0xFF1D342D);
-          final hasAction = row.projected || (row.date.isAfter(today) && row.movementId != null);
-          final actionLabel = row.projected
-              ? (DateUtils.dateOnly(row.date).isAfter(today) ? 'Fazer repasse antes' : 'Marcar como pago')
-              : (row.expense ? 'Marcar como pago' : 'Confirmar recebimento');
+          final futureDate = DateUtils.dateOnly(row.date).isAfter(today);
+          final hasAction = row.projected || ((futureDate || row.status == 'Programada') && row.movementId != null);
+          final actionLabel = row.recurringId != null
+              ? (row.expense ? (futureDate ? 'Pagar antes' : 'Marcar como pago') : 'Marcar como recebido')
+              : row.projected
+                  ? (futureDate ? 'Fazer repasse antes' : 'Marcar como pago')
+                  : (row.expense ? 'Marcar como pago' : 'Confirmar recebimento');
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: card(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -674,12 +772,15 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
                 Text(row.description, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)),
                 const SizedBox(height: 3),
                 Text('${row.category} · ${row.status}', style: const TextStyle(fontSize: 11, color: muted)),
-                if (hasAction) TextButton.icon(
-                  onPressed: () => row.projected ? _markAsPaid(context, row) : _settleScheduledMovement(context, row),
-                  icon: Icon(row.projected && DateUtils.dateOnly(row.date).isAfter(today) ? Icons.bolt : Icons.check_circle_outline, size: 16),
-                  label: Text(actionLabel),
-                  style: TextButton.styleFrom(foregroundColor: violet, visualDensity: VisualDensity.compact, padding: const EdgeInsets.only(left: 0, right: 8)),
-                ),
+                if (hasAction) Wrap(spacing: 4, children: [
+                  TextButton.icon(
+                    onPressed: () => row.projected ? _markAsPaid(context, row) : _settleScheduledMovement(context, row),
+                    icon: Icon(row.projected && DateUtils.dateOnly(row.date).isAfter(today) ? Icons.bolt : Icons.check_circle_outline, size: 16),
+                    label: Text(actionLabel),
+                    style: TextButton.styleFrom(foregroundColor: violet, visualDensity: VisualDensity.compact, padding: const EdgeInsets.only(left: 0, right: 8)),
+                  ),
+                  if (row.recurringId != null) TextButton(onPressed: () => _stopRecurring(context, row.recurringId!), style: TextButton.styleFrom(foregroundColor: muted, visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 4)), child: const Text('Encerrar repetição')),
+                ]),
               ])),
               const SizedBox(width: 8),
               Text('${row.expense ? '−' : '+'} ${formatMoney(row.amount)}', style: TextStyle(fontWeight: FontWeight.w800, color: row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0))),
@@ -701,21 +802,26 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'client').snapshots(), builder: (context, clientSnapshot) {
         if (clientSnapshot.hasError) return const Text('Não foi possível gerar a previsão dos clientes.');
         if (!clientSnapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('cash_recurring').where('active', isEqualTo: true).snapshots(), builder: (context, recurringSnapshot) {
+        if (recurringSnapshot.hasError) return const Text('Não foi possível carregar os lançamentos recorrentes.');
+        if (!recurringSnapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
         final today = DateUtils.dateOnly(DateTime.now());
         final monthStart = DateTime(month.year, month.month);
         final nextMonth = DateTime(month.year, month.month + 1);
         final rows = <_MonthlyRow>[];
         final paidYields = <String>{};
+        final paidRecurring = <String>{};
         for (final doc in movementSnapshot.data!.docs) {
           final data = doc.data();
           if (data['clientId'] is String && data['dueMonth'] is String) paidYields.add('${data['clientId']}_${data['dueMonth']}');
+          if (data['recurrenceId'] is String && data['dueMonth'] is String) paidRecurring.add('${data['recurrenceId']}_${data['dueMonth']}');
           final dateValue = data['date'];
           if (dateValue is! Timestamp) continue;
           final date = dateValue.toDate();
           if (date.isBefore(monthStart) || !date.isBefore(nextMonth)) continue;
           final expense = data['type'] == 'expense';
           final completed = data['status'] == 'paid' || data['status'] == 'received';
-          final isScheduled = date.isAfter(today) && !completed;
+          final isScheduled = data['status'] == 'scheduled' || (date.isAfter(today) && !completed);
           rows.add(_MonthlyRow(date: date, description: data['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: completed ? (expense ? 'Pago' : 'Recebida') : isScheduled ? 'Programada' : 'Realizada', movementId: doc.id));
         }
         for (final client in clientSnapshot.data!.docs) {
@@ -733,10 +839,28 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final projectedAmount = principal * rate / 100;
           rows.add(_MonthlyRow(date: dueDate, description: 'Dividendo · ${data['name'] as String? ?? 'Cliente'}', category: 'Dividendos', account: 'Mesa Principal', amount: projectedAmount, expense: true, status: dueDate.isBefore(today) ? 'Atrasada' : DateUtils.isSameDay(dueDate, today) ? 'Vence hoje' : 'Prevista', clientId: client.id, dueMonth: dueMonth, projected: true));
         }
+        for (final recurring in recurringSnapshot.data!.docs) {
+          final data = recurring.data();
+          final startValue = data['date'];
+          if (startValue is! Timestamp) continue;
+          final start = DateUtils.dateOnly(startValue.toDate());
+          final monthOffset = (month.year - start.year) * 12 + month.month - start.month;
+          if (monthOffset < 0) continue;
+          final mode = data['repeatMode'] as String? ?? 'temporary';
+          final count = (data['occurrenceCount'] as num?)?.toInt();
+          if (mode == 'temporary' && (count == null || monthOffset >= count)) continue;
+          final dueDate = _dueDate(month.year, month.month, start.day);
+          if (dueDate.isBefore(start)) continue;
+          final dueMonth = '${month.year}-${month.month.toString().padLeft(2, '0')}';
+          if (paidRecurring.contains('${recurring.id}_$dueMonth')) continue;
+          final expense = data['type'] == 'expense';
+          rows.add(_MonthlyRow(date: dueDate, description: data['description'] as String? ?? (expense ? 'Despesa recorrente' : 'Receita recorrente'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: mode == 'fixed' ? 'Fixa · prevista' : 'Parcela ${monthOffset + 1}/$count', dueMonth: dueMonth, recurringId: recurring.id, projected: true));
+        }
         rows.sort((a, b) => a.date.compareTo(b.date));
-        final monthIncome = rows.where((r) => !r.projected && !r.expense).fold<double>(0, (s, r) => s + r.amount);
-        final monthPaidExpenses = rows.where((r) => !r.projected && r.expense && !r.date.isAfter(today)).fold<double>(0, (s, r) => s + r.amount);
-        final monthForecast = rows.where((r) => r.expense && (r.projected || r.date.isAfter(today))).fold<double>(0, (s, r) => s + r.amount);
+        final monthIncome = rows.where((r) => !r.projected && !r.expense && r.status != 'Programada' && !DateUtils.dateOnly(r.date).isAfter(today)).fold<double>(0, (s, r) => s + r.amount);
+        final monthPlannedIncome = rows.where((r) => !r.expense && ((r.projected && r.recurringId != null) || (!r.projected && (r.status == 'Programada' || DateUtils.dateOnly(r.date).isAfter(today))))).fold<double>(0, (s, r) => s + r.amount);
+        final monthPaidExpenses = rows.where((r) => !r.projected && r.expense && r.status != 'Programada' && !r.date.isAfter(today)).fold<double>(0, (s, r) => s + r.amount);
+        final monthForecast = rows.where((r) => r.expense && (r.projected || r.status == 'Programada' || r.date.isAfter(today))).fold<double>(0, (s, r) => s + r.amount);
         final groupedRows = <DateTime, List<_MonthlyRow>>{};
         for (final row in rows) {
           final day = DateUtils.dateOnly(row.date);
@@ -744,11 +868,12 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         }
         final groupedDays = groupedRows.keys.toList()..sort();
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          card(Wrap(alignment: WrapAlignment.spaceBetween, runSpacing: 12, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('RECEITAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF58D6A0)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DESPESAS PAGAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPaidExpenses), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SAÍDAS PREVISTAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthForecast), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))])])),
+          card(Wrap(alignment: WrapAlignment.spaceBetween, runSpacing: 12, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('RECEITAS REALIZADAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF58D6A0)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('ENTRADAS PREVISTAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPlannedIncome), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF58D6A0)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DESPESAS PAGAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthPaidExpenses), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SAÍDAS PREVISTAS', style: TextStyle(fontSize: 10, color: muted)), const SizedBox(height: 5), Text(formatMoney(monthForecast), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF718A)))])])),
           const SizedBox(height: 12),
           if (rows.isEmpty) card(const Text('Nenhuma transação ou repasse previsto para este mês.', style: TextStyle(color: muted)))
           else ...groupedDays.map((day) => _daySection(context, day, groupedRows[day]!, today)),
         ]);
+        });
       });
     }),
   ]);
@@ -766,25 +891,75 @@ class _NewMovementSheet extends StatefulWidget {
 class _NewMovementSheetState extends State<_NewMovementSheet> {
   final description = TextEditingController();
   final amount = TextEditingController();
+  final occurrences = TextEditingController(text: '3');
+  DateTime selectedDate = DateUtils.dateOnly(DateTime.now());
+  String repeatMode = 'none';
+  bool isCompleted = true;
   String? selectedClientId;
   String? selectedClientName;
+  String? selectedCategory;
   bool saving = false;
   String? error;
+  List<String> get categories => widget.type == 'expense'
+      ? const ['Despesas', 'Impostos', 'Alimentação', 'Compras', 'Assinaturas', 'Saques', 'Outros']
+      : const ['Receitas', 'Dividendos', 'Bonificação', 'Vendas', 'Serviços', 'Outros'];
+  String _selectedDateLabel() => '${selectedDate.day.toString().padLeft(2, '0')}/${selectedDate.month.toString().padLeft(2, '0')}/${selectedDate.year}';
+
+  void _setDate(DateTime date) => setState(() {
+        selectedDate = DateUtils.dateOnly(date);
+        if (selectedDate.isAfter(DateUtils.dateOnly(DateTime.now()))) isCompleted = false;
+      });
+
+  Future<void> _chooseDate() async {
+    final picked = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2020), lastDate: DateTime(2100));
+    if (picked != null && mounted) _setDate(picked);
+  }
+
   Future<void> save() async {
     final value = double.tryParse(amount.text.trim().replaceAll('.', '').replaceAll(',', '.'));
     if (description.text.trim().isEmpty || value == null || value <= 0) { setState(() => error = 'Informe uma descrição e um valor válido.'); return; }
+    if (selectedClientId != null && repeatMode != 'none') { setState(() => error = 'Repetição mensal é para lançamentos gerais da mesa.'); return; }
+    final occurrenceCount = repeatMode == 'temporary' ? int.tryParse(occurrences.text.trim()) : null;
+    if (repeatMode == 'temporary' && (occurrenceCount == null || occurrenceCount < 2 || occurrenceCount > 120)) { setState(() => error = 'Informe de 2 a 120 ocorrências para uma repetição temporária.'); return; }
     setState(() { saving = true; error = null; });
     final now = DateTime.now();
     try {
       final firestore = FirebaseFirestore.instance;
       final movementRef = firestore.collection('cash_movements').doc();
+      final nowDate = DateUtils.dateOnly(now);
+      final isFuture = selectedDate.isAfter(nowDate);
+      final movementDate = isCompleted && isFuture ? nowDate : selectedDate;
       final movement = <String, dynamic>{
         'type': widget.type, 'description': description.text.trim(), 'amount': value,
-        'date': Timestamp.fromDate(DateTime(now.year, now.month, now.day)),
+        'date': Timestamp.fromDate(movementDate),
         'createdAt': FieldValue.serverTimestamp(), 'createdBy': FirebaseAuth.instance.currentUser!.uid,
-        'category': selectedClientId == null ? (widget.type == 'expense' ? 'Despesas' : 'Receitas') : (widget.type == 'expense' ? 'Saque de cliente' : 'Depósito de cliente'),
+        'category': selectedClientId == null ? (selectedCategory ?? categories.first) : (widget.type == 'expense' ? 'Saque de cliente' : 'Depósito de cliente'),
         'account': selectedClientName ?? 'Mesa Principal',
+        'status': isCompleted ? (widget.type == 'expense' ? 'paid' : 'received') : 'scheduled',
       };
+      if (isCompleted && isFuture) movement['scheduledDate'] = Timestamp.fromDate(selectedDate);
+      if (repeatMode != 'none') {
+        final recurringRef = firestore.collection('cash_recurring').doc();
+        final dueMonth = '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}';
+        final recurringMovementRef = firestore.collection('cash_movements').doc('repeat_${recurringRef.id}_$dueMonth');
+        final recurringMovement = <String, dynamic>{
+          ...movement, 'kind': 'recurring_payment', 'recurrenceId': recurringRef.id, 'dueMonth': dueMonth,
+        };
+        await firestore.runTransaction((transaction) async {
+          transaction.set(recurringRef, {
+            'type': widget.type, 'description': description.text.trim(), 'amount': value,
+            'date': Timestamp.fromDate(selectedDate), 'createdAt': FieldValue.serverTimestamp(),
+            'createdBy': FirebaseAuth.instance.currentUser!.uid,
+            'category': selectedCategory ?? categories.first, 'account': 'Mesa Principal',
+            'repeatMode': repeatMode, 'occurrenceCount': occurrenceCount, 'active': true,
+          });
+          if (isCompleted) transaction.set(recurringMovementRef, recurringMovement);
+        });
+        if (!mounted) return;
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(repeatMode == 'fixed' ? 'Repetição mensal fixa criada.' : 'Repetição criada para $occurrenceCount ocorrências.')));
+        return;
+      }
       if (selectedClientId != null) {
         final clientRef = firestore.collection('users').doc(selectedClientId);
         final isDeposit = widget.type == 'receipt';
@@ -803,41 +978,53 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
           final ledgerTitle = isDeposit ? 'Novo depósito' : 'Retirada lançada pelo administrador';
           final ledgerType = isDeposit ? 'credit' : 'debit';
           transaction.set(movementRef, {...movement, 'kind': isDeposit ? 'client_deposit' : 'manual_client_withdrawal', 'clientId': selectedClientId});
-          transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, 'totalDeposits': newTotalDeposits, if (!isDeposit) 'immediateAvailable': (((data['immediateAvailable'] as num?)?.toDouble() ?? 0) - value).clamp(0.0, newBalance).toDouble(), 'updatedAt': FieldValue.serverTimestamp()});
-          transaction.set(ledgerRef, {'type': ledgerType, 'title': ledgerTitle, 'description': description.text.trim(), 'amount': value, 'balanceAfter': newBalance, 'date': Timestamp.fromDate(DateUtils.dateOnly(now)), 'createdAt': FieldValue.serverTimestamp(), 'source': isDeposit ? 'manual_deposit' : 'manual_withdrawal'});
+          if (isCompleted) {
+            transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, 'totalDeposits': newTotalDeposits, if (!isDeposit) 'immediateAvailable': (((data['immediateAvailable'] as num?)?.toDouble() ?? 0) - value).clamp(0.0, newBalance).toDouble(), 'updatedAt': FieldValue.serverTimestamp()});
+            transaction.set(ledgerRef, {'type': ledgerType, 'title': ledgerTitle, 'description': description.text.trim(), 'amount': value, 'balanceAfter': newBalance, 'date': Timestamp.fromDate(movementDate), 'createdAt': FieldValue.serverTimestamp(), 'source': isDeposit ? 'manual_deposit' : 'manual_withdrawal'});
+          }
         });
       } else {
         await movementRef.set(movement);
       }
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(selectedClientId != null ? (widget.type == 'receipt' ? 'Depósito registrado. O capital e o saldo de $selectedClientName foram atualizados.' : 'Retirada registrada no caixa e descontada do saldo de $selectedClientName.') : '${widget.type == 'receipt' ? 'Receita' : 'Despesa'} lançada com a data de hoje.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(selectedClientId != null ? (widget.type == 'receipt' ? 'Depósito registrado. O capital e o saldo de $selectedClientName foram atualizados.' : 'Retirada registrada no caixa e descontada do saldo de $selectedClientName.') : selectedDate.isAfter(DateUtils.dateOnly(now)) ? 'Lançamento programado para ${_selectedDateLabel()}; será contado no caixa somente quando for concluído.' : '${widget.type == 'receipt' ? 'Receita' : 'Despesa'} lançada em ${_selectedDateLabel()}.')));
     } catch (e) { setState(() => error = e is StateError ? e.message.toString() : 'Não foi possível salvar. Verifique se as regras do Firestore foram publicadas.'); }
     finally { if (mounted) setState(() => saving = false); }
   }
   @override
-  void dispose() { description.dispose(); amount.dispose(); super.dispose(); }
+  void dispose() { description.dispose(); amount.dispose(); occurrences.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
-    return Padding(padding: EdgeInsets.fromLTRB(22, 24, 22, MediaQuery.of(context).viewInsets.bottom + 22), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom), child: SingleChildScrollView(child: Padding(padding: const EdgeInsets.fromLTRB(22, 24, 22, 22), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(widget.type == 'receipt' ? 'Lançar receita' : 'Lançar despesa', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)), const SizedBox(height: 8),
-      Text('Data do lançamento: ${today.day.toString().padLeft(2, '0')}/${today.month.toString().padLeft(2, '0')}/${today.year} · hoje', style: const TextStyle(color: muted)), const SizedBox(height: 16),
+      Wrap(spacing: 8, children: [
+        ChoiceChip(label: const Text('Hoje'), selected: DateUtils.isSameDay(selectedDate, DateUtils.dateOnly(DateTime.now())), onSelected: (_) => _setDate(DateTime.now())),
+        ChoiceChip(label: const Text('Ontem'), selected: DateUtils.isSameDay(selectedDate, DateUtils.dateOnly(DateTime.now().subtract(const Duration(days: 1)))), onSelected: (_) => _setDate(DateTime.now().subtract(const Duration(days: 1)))),
+        ChoiceChip(label: Text('Outros · ${_selectedDateLabel()}'), selected: !DateUtils.isSameDay(selectedDate, DateUtils.dateOnly(DateTime.now())) && !DateUtils.isSameDay(selectedDate, DateUtils.dateOnly(DateTime.now().subtract(const Duration(days: 1)))), onSelected: (_) => _chooseDate()),
+      ]),
+      if (selectedDate.isAfter(DateUtils.dateOnly(DateTime.now())) && selectedClientId == null) const Padding(padding: EdgeInsets.only(bottom: 8), child: Text('Este lançamento ficará previsto e entrará no saldo realizado quando você confirmar o pagamento/recebimento.', style: TextStyle(color: muted, fontSize: 12))),
+      const SizedBox(height: 8),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(widget.type == 'expense' ? 'Pago' : 'Recebido'), value: isCompleted, onChanged: (value) => setState(() => isCompleted = value)),
+      DropdownButtonFormField<String>(initialValue: repeatMode, decoration: const InputDecoration(labelText: 'Repetição'), items: const [DropdownMenuItem(value: 'none', child: Text('Não se repete')), DropdownMenuItem(value: 'fixed', child: Text('Fixa · todo mês')), DropdownMenuItem(value: 'temporary', child: Text('Temporária · por quantidade'))], onChanged: (value) { if (value != null) setState(() => repeatMode = value); }),
+      if (repeatMode == 'temporary') Padding(padding: const EdgeInsets.only(top: 10), child: TextField(controller: occurrences, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantidade de ocorrências', helperText: 'De 2 a 120 repetições mensais.'))),
       ...[
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'client').snapshots(), builder: (context, snapshot) {
           if (!snapshot.hasData) return const LinearProgressIndicator();
           final clients = snapshot.data!.docs;
-          return DropdownButtonFormField<String>(value: selectedClientId ?? '', decoration: const InputDecoration(labelText: 'Carteira / cliente (opcional)'), items: [DropdownMenuItem(value: '', child: Text(widget.type == 'expense' ? 'Despesa geral da mesa' : 'Receita geral da mesa')), ...clients.map((client) => DropdownMenuItem(value: client.id, child: Text(client.data()['name'] as String? ?? 'Cliente')))], onChanged: (id) { setState(() { selectedClientId = id == null || id.isEmpty ? null : id; selectedClientName = id == null || id.isEmpty ? null : clients.firstWhere((client) => client.id == id).data()['name'] as String? ?? 'Cliente'; if (selectedClientId != null && description.text.trim().isEmpty) description.text = widget.type == 'expense' ? 'Retirada · $selectedClientName' : 'Depósito · $selectedClientName'; }); });
+          return DropdownButtonFormField<String>(initialValue: selectedClientId ?? '', decoration: const InputDecoration(labelText: 'Carteira / cliente (opcional)'), items: [DropdownMenuItem(value: '', child: Text(widget.type == 'expense' ? 'Despesa geral da mesa' : 'Receita geral da mesa')), ...clients.map((client) => DropdownMenuItem(value: client.id, child: Text(client.data()['name'] as String? ?? 'Cliente')))], onChanged: (id) { setState(() { selectedClientId = id == null || id.isEmpty ? null : id; selectedClientName = id == null || id.isEmpty ? null : clients.firstWhere((client) => client.id == id).data()['name'] as String? ?? 'Cliente'; if (selectedClientId != null && description.text.trim().isEmpty) description.text = widget.type == 'expense' ? 'Retirada · $selectedClientName' : 'Depósito · $selectedClientName'; }); });
         }),
         const SizedBox(height: 12),
-        if (selectedClientId != null) Text(widget.type == 'expense' ? 'Ao salvar, o valor será descontado do saldo e do limite de saque imediato do cliente.' : 'Ao salvar, o valor será somado ao saldo e ao capital aplicado; o rendimento futuro usará o novo capital.', style: const TextStyle(fontSize: 12, color: muted)),
+      if (selectedClientId != null) Text(isCompleted ? (widget.type == 'expense' ? 'Ao salvar, o valor será descontado do saldo e do limite de saque imediato do cliente.' : 'Ao salvar, o valor será somado ao saldo e ao capital aplicado.') : 'O saldo do cliente só será atualizado quando você confirmar como pago/recebido.', style: const TextStyle(fontSize: 12, color: muted)),
         const SizedBox(height: 12),
       ],
       TextField(controller: description, decoration: InputDecoration(labelText: widget.type == 'receipt' ? 'Descrição da receita' : 'Descrição da despesa')),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: selectedCategory ?? categories.first, decoration: const InputDecoration(labelText: 'Categoria'), items: categories.map((category) => DropdownMenuItem(value: category, child: Text(category))).toList(), onChanged: (value) => setState(() => selectedCategory = value)),
       const SizedBox(height: 12), TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Valor (R\$)')),
       if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: Color(0xFFBC4352)))),
       const SizedBox(height: 18), SizedBox(width: double.infinity, child: FilledButton(onPressed: saving ? null : save, child: saving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text('Salvar ${widget.type == 'receipt' ? 'receita' : 'despesa'}'))),
-    ]));
+    ]))));
   }
 }
 

@@ -62,7 +62,28 @@ service cloud.firestore {
         && request.resource.data.date is timestamp
         && request.resource.data.keys().hasOnly([
           'type', 'description', 'amount', 'date', 'createdAt', 'createdBy',
-          'category', 'account', 'kind', 'clientId', 'dueMonth', 'withdrawalRequestId'
+          'category', 'account', 'kind', 'clientId', 'dueMonth', 'withdrawalRequestId', 'status',
+          'scheduledDate', 'recurrenceId'
+        ]);
+      allow update, delete: if isAdmin();
+    }
+
+    match /cash_recurring/{recurringId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.type in ['receipt', 'expense']
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.date is timestamp
+        && request.resource.data.active == true
+        && request.resource.data.repeatMode in ['fixed', 'temporary']
+        && (request.resource.data.repeatMode == 'fixed'
+          || (request.resource.data.occurrenceCount is int
+            && request.resource.data.occurrenceCount >= 2
+            && request.resource.data.occurrenceCount <= 120))
+        && request.resource.data.keys().hasOnly([
+          'type', 'description', 'amount', 'date', 'createdAt', 'createdBy',
+          'category', 'account', 'repeatMode', 'occurrenceCount', 'active'
         ]);
       allow update, delete: if isAdmin();
     }
