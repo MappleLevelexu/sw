@@ -319,7 +319,8 @@ class DashboardPage extends StatelessWidget {
             final day = dueDay(now.year, now.month, start.day);
             final dueDate = DateTime(now.year, now.month, day);
             final key = '${recurringDoc.id}_$dueMonth';
-            if (dueDate.isBefore(start) || dueDate.isBefore(monthStart) || !dueDate.isBefore(nextMonth) || paidRecurringKeys.contains(key)) continue;
+            final cancelledMonths = data['cancelledMonths'] as List? ?? const [];
+            if (dueDate.isBefore(start) || dueDate.isBefore(monthStart) || !dueDate.isBefore(nextMonth) || paidRecurringKeys.contains(key) || cancelledMonths.contains(dueMonth)) continue;
             final amount = (data['amount'] as num?)?.toDouble() ?? 0;
             if (data['type'] == 'expense') {
               plannedExpenses += amount;
@@ -617,7 +618,7 @@ class CashPage extends StatelessWidget {
 }
 
 class _MonthlyRow {
-  const _MonthlyRow({required this.date, required this.description, required this.category, required this.account, required this.amount, required this.expense, required this.status, this.clientId, this.dueMonth, this.movementId, this.recurringId, this.projected = false});
+  const _MonthlyRow({required this.date, required this.description, required this.category, required this.account, required this.amount, required this.expense, required this.status, this.clientId, this.dueMonth, this.movementId, this.recurringId, this.notes, this.projected = false});
   final DateTime date;
   final String description;
   final String category;
@@ -629,6 +630,7 @@ class _MonthlyRow {
   final String? dueMonth;
   final String? movementId;
   final String? recurringId;
+  final String? notes;
   final bool projected;
 }
 
@@ -877,6 +879,144 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     }
   }
 
+  Future<void> _showTransactionDetails(BuildContext context, _MonthlyRow row) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(row.description, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: ink)),
+            const SizedBox(height: 6),
+            Text('${row.expense ? 'Despesa' : 'Receita'} · ${row.status}', style: const TextStyle(color: muted)),
+            const SizedBox(height: 18),
+            _transactionDetailLine('Valor', formatMoney(row.amount), row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0)),
+            _transactionDetailLine('Data', formatDate(row.date)),
+            _transactionDetailLine('Categoria', row.category),
+            _transactionDetailLine('Conta / carteira', row.account),
+            const SizedBox(height: 12),
+            const Text('Observações', style: TextStyle(fontWeight: FontWeight.bold, color: ink)),
+            const SizedBox(height: 6),
+            Text(row.notes?.trim().isNotEmpty == true ? row.notes!.trim() : 'Nenhuma observação registrada.', style: const TextStyle(color: muted)),
+            if (row.movementId != null) ...[
+              const SizedBox(height: 22),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFFF718A), side: const BorderSide(color: Color(0x66FF718A))),
+                  onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: sheetContext,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Excluir transação?'),
+                        content: Text('Deseja excluir “${row.description}”? Esta ação não pode ser desfeita.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')),
+                          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB8324B)), child: const Text('Excluir')),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
+                    try {
+                      await _deleteTransaction(row);
+                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transação excluída.')));
+                    } catch (error) {
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Não foi possível excluir: $error')));
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Excluir transação'),
+                ),
+              ),
+            ],
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteTransaction(_MonthlyRow row) async {
+    final movementId = row.movementId;
+    if (movementId == null) return;
+    final db = FirebaseFirestore.instance;
+    final movementRef = db.collection('cash_movements').doc(movementId);
+    await db.runTransaction((transaction) async {
+      final movementSnapshot = await transaction.get(movementRef);
+      if (!movementSnapshot.exists) throw StateError('A transação já foi removida.');
+      final movement = movementSnapshot.data()!;
+      final clientId = movement['clientId'] as String?;
+      final kind = movement['kind'] as String?;
+      final completed = movement['status'] != 'scheduled';
+      final amount = (movement['amount'] as num?)?.toDouble() ?? 0;
+      DocumentReference<Map<String, dynamic>>? clientRef;
+      DocumentSnapshot<Map<String, dynamic>>? clientSnapshot;
+      DocumentReference<Map<String, dynamic>>? ledgerRef;
+      DocumentSnapshot<Map<String, dynamic>>? ledgerSnapshot;
+      DocumentReference<Map<String, dynamic>>? requestRef;
+      DocumentSnapshot<Map<String, dynamic>>? requestSnapshot;
+      DocumentReference<Map<String, dynamic>>? recurringRef;
+      DocumentSnapshot<Map<String, dynamic>>? recurringSnapshot;
+
+      if (kind == 'recurring_payment' && movement['recurrenceId'] is String && movement['dueMonth'] is String) {
+        recurringRef = db.collection('cash_recurring').doc(movement['recurrenceId'] as String);
+        recurringSnapshot = await transaction.get(recurringRef);
+      }
+
+      if (completed && clientId != null && ['client_deposit', 'manual_client_withdrawal', 'yield_payment', 'withdrawal'].contains(kind)) {
+        clientRef = db.collection('users').doc(clientId);
+        String? ledgerId;
+        if (kind == 'client_deposit') ledgerId = 'manual_deposit_$movementId';
+        if (kind == 'manual_client_withdrawal') ledgerId = 'manual_withdrawal_$movementId';
+        if (kind == 'yield_payment' && movement['dueMonth'] is String) ledgerId = 'yield_${movement['dueMonth']}';
+        if (kind == 'withdrawal' && movement['withdrawalRequestId'] is String) {
+          final requestId = movement['withdrawalRequestId'] as String;
+          ledgerId = 'withdrawal_$requestId';
+          requestRef = db.collection('withdrawal_requests').doc(requestId);
+        }
+        clientSnapshot = await transaction.get(clientRef);
+        if (ledgerId != null) {
+          ledgerRef = clientRef.collection('ledger').doc(ledgerId);
+          ledgerSnapshot = await transaction.get(ledgerRef);
+        }
+        if (requestRef != null) requestSnapshot = await transaction.get(requestRef);
+        if (!clientSnapshot.exists || clientSnapshot.data() == null) throw StateError('O cliente vinculado não foi encontrado; a transação foi mantida para proteger o saldo.');
+      }
+
+      if (clientSnapshot != null && clientRef != null) {
+        final client = clientSnapshot.data()!;
+        final balance = (client['balance'] as num?)?.toDouble() ?? (client['principal'] as num?)?.toDouble() ?? 0;
+        final principal = (client['principal'] as num?)?.toDouble() ?? balance;
+        final totalDeposits = (client['totalDeposits'] as num?)?.toDouble() ?? principal;
+        final immediate = (client['immediateAvailable'] as num?)?.toDouble() ?? 0;
+        if (kind == 'client_deposit') {
+          final newBalance = balance - amount;
+          final newPrincipal = principal - amount;
+          final newTotalDeposits = totalDeposits - amount;
+          if (newBalance < -0.005 || newPrincipal < -0.005 || newTotalDeposits < newPrincipal - 0.005) throw StateError('Não é seguro excluir: o cliente já usou parte desse depósito. Ajuste o saldo do cliente primeiro.');
+          transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, 'totalDeposits': newTotalDeposits, 'immediateAvailable': immediate.clamp(0.0, newBalance < 0 ? 0.0 : newBalance), 'updatedAt': FieldValue.serverTimestamp()});
+        } else if (kind == 'manual_client_withdrawal' || kind == 'withdrawal') {
+          final newBalance = balance + amount;
+          final newPrincipal = (principal + amount).clamp(0.0, totalDeposits).toDouble();
+          transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, 'immediateAvailable': (immediate + amount).clamp(0.0, newBalance), 'updatedAt': FieldValue.serverTimestamp()});
+          if (kind == 'withdrawal' && requestRef != null && requestSnapshot?.exists == true) {
+            transaction.update(requestRef, {'status': 'pending', 'paidAmount': FieldValue.delete(), 'partial': FieldValue.delete(), 'reviewedAt': FieldValue.delete(), 'reviewedBy': FieldValue.delete()});
+          }
+        } else if (kind == 'yield_payment') {
+          final newBalance = balance - amount;
+          if (newBalance < -0.005) throw StateError('Não é seguro excluir: o cliente já utilizou esse rendimento.');
+          transaction.update(clientRef, {'balance': newBalance, 'immediateAvailable': immediate.clamp(0.0, newBalance), 'updatedAt': FieldValue.serverTimestamp()});
+        }
+        if (ledgerSnapshot?.exists == true && ledgerRef != null) transaction.delete(ledgerRef);
+      }
+      if (recurringRef != null && recurringSnapshot?.exists == true) {
+        transaction.update(recurringRef, {'cancelledMonths': FieldValue.arrayUnion([movement['dueMonth']])});
+      }
+      transaction.delete(movementRef);
+    });
+  }
+
   Widget _daySection(BuildContext context, DateTime date, List<_MonthlyRow> rows, DateTime today) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
@@ -905,7 +1045,10 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
                   : (row.expense ? 'Marcar como pago' : 'Confirmar recebimento');
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: card(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => _showTransactionDetails(context, row),
+              child: card(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               CircleAvatar(backgroundColor: row.projected ? violetWash : iconBackground, child: Icon(row.projected ? Icons.payments_outlined : row.expense ? Icons.north_east : Icons.south_west, color: row.projected ? violet : tone)),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -928,6 +1071,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
                 if (canEditReceipt) IconButton(tooltip: 'Editar valor da receita', visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32), onPressed: () => _editReceiptAmount(context, row), icon: const Icon(Icons.edit_outlined, size: 17, color: violet)),
               ]),
             ])),
+            ),
           );
         }),
       ]),
@@ -965,7 +1109,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final expense = data['type'] == 'expense';
           final completed = data['status'] == 'paid' || data['status'] == 'received';
           final isScheduled = data['status'] == 'scheduled' || (date.isAfter(today) && !completed);
-          rows.add(_MonthlyRow(date: date, description: data['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: completed ? (expense ? 'Pago' : 'Recebida') : isScheduled ? 'Programada' : 'Realizada', movementId: doc.id));
+          rows.add(_MonthlyRow(date: date, description: data['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: completed ? (expense ? 'Pago' : 'Recebida') : isScheduled ? 'Programada' : 'Realizada', notes: data['notes'] as String?, movementId: doc.id));
         }
         for (final client in clientSnapshot.data!.docs) {
           final data = client.data();
@@ -995,9 +1139,10 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final dueDate = _dueDate(month.year, month.month, start.day);
           if (dueDate.isBefore(start)) continue;
           final dueMonth = '${month.year}-${month.month.toString().padLeft(2, '0')}';
-          if (paidRecurring.contains('${recurring.id}_$dueMonth')) continue;
+          final cancelledMonths = data['cancelledMonths'] as List? ?? const [];
+          if (paidRecurring.contains('${recurring.id}_$dueMonth') || cancelledMonths.contains(dueMonth)) continue;
           final expense = data['type'] == 'expense';
-          rows.add(_MonthlyRow(date: dueDate, description: data['description'] as String? ?? (expense ? 'Despesa recorrente' : 'Receita recorrente'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: mode == 'fixed' ? 'Fixa · prevista' : 'Parcela ${monthOffset + 1}/$count', dueMonth: dueMonth, recurringId: recurring.id, projected: true));
+          rows.add(_MonthlyRow(date: dueDate, description: data['description'] as String? ?? (expense ? 'Despesa recorrente' : 'Receita recorrente'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: mode == 'fixed' ? 'Fixa · prevista' : 'Parcela ${monthOffset + 1}/$count', dueMonth: dueMonth, recurringId: recurring.id, notes: data['notes'] as String?, projected: true));
         }
         rows.sort((a, b) => a.date.compareTo(b.date));
         final monthIncome = rows.where((r) => !r.projected && !r.expense && r.status != 'Programada' && !DateUtils.dateOnly(r.date).isAfter(today)).fold<double>(0, (s, r) => s + r.amount);
@@ -1043,6 +1188,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
 }
 
 Widget cashBox(String label, String value, Color color) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: surfaceRaised, borderRadius: BorderRadius.circular(14)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(fontSize: 11, color: muted)), const SizedBox(height: 4), Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color))]));
+Widget _transactionDetailLine(String label, String value, [Color color = ink]) => Padding(padding: const EdgeInsets.only(bottom: 10), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [SizedBox(width: 125, child: Text(label, style: const TextStyle(color: muted))), Expanded(child: Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w600)))]));
 void addMovement(BuildContext context, String type) => showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (_) => _NewMovementSheet(type: type));
 
 class _NewMovementSheet extends StatefulWidget {
@@ -1053,6 +1199,7 @@ class _NewMovementSheet extends StatefulWidget {
 }
 class _NewMovementSheetState extends State<_NewMovementSheet> {
   final description = TextEditingController();
+  final notes = TextEditingController();
   final amount = TextEditingController();
   final occurrences = TextEditingController(text: '3');
   DateTime selectedDate = DateUtils.dateOnly(DateTime.now());
@@ -1094,6 +1241,7 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
       final movementDate = isCompleted && isFuture ? nowDate : selectedDate;
       final movement = <String, dynamic>{
         'type': widget.type, 'description': description.text.trim(), 'amount': value,
+        if (notes.text.trim().isNotEmpty) 'notes': notes.text.trim(),
         'date': Timestamp.fromDate(movementDate),
         'createdAt': FieldValue.serverTimestamp(), 'createdBy': FirebaseAuth.instance.currentUser!.uid,
         'category': selectedClientId == null ? (selectedCategory ?? categories.first) : (widget.type == 'expense' ? 'Saque de cliente' : 'Depósito de cliente'),
@@ -1111,6 +1259,7 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
         await firestore.runTransaction((transaction) async {
           transaction.set(recurringRef, {
             'type': widget.type, 'description': description.text.trim(), 'amount': value,
+            if (notes.text.trim().isNotEmpty) 'notes': notes.text.trim(),
             'date': Timestamp.fromDate(selectedDate), 'createdAt': FieldValue.serverTimestamp(),
             'createdBy': FirebaseAuth.instance.currentUser!.uid,
             'category': selectedCategory ?? categories.first, 'account': 'Mesa Principal',
@@ -1156,7 +1305,7 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
     finally { if (mounted) setState(() => saving = false); }
   }
   @override
-  void dispose() { description.dispose(); amount.dispose(); occurrences.dispose(); super.dispose(); }
+  void dispose() { description.dispose(); notes.dispose(); amount.dispose(); occurrences.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
     return Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom), child: SingleChildScrollView(child: Padding(padding: const EdgeInsets.fromLTRB(22, 24, 22, 22), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1182,6 +1331,8 @@ class _NewMovementSheetState extends State<_NewMovementSheet> {
         const SizedBox(height: 12),
       ],
       TextField(controller: description, decoration: InputDecoration(labelText: widget.type == 'receipt' ? 'Descrição da receita' : 'Descrição da despesa')),
+      const SizedBox(height: 12),
+      TextField(controller: notes, maxLines: 3, maxLength: 500, decoration: const InputDecoration(labelText: 'Observações (opcional)', hintText: 'Detalhes adicionais sobre este lançamento')),
       const SizedBox(height: 12),
       DropdownButtonFormField<String>(initialValue: selectedCategory ?? categories.first, decoration: const InputDecoration(labelText: 'Categoria'), items: categories.map((category) => DropdownMenuItem(value: category, child: Text(category))).toList(), onChanged: (value) => setState(() => selectedCategory = value)),
       const SizedBox(height: 12), TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Valor (R\$)')),
