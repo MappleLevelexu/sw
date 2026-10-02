@@ -239,8 +239,8 @@ class _AdminShellState extends State<AdminShell> {
       extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
-      body: SafeArea(top: false, child: IndexedStack(index: index, children: pages)),
-      bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
+      body: SafeArea(top: false, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1200), child: IndexedStack(index: index, children: pages)))),
+      bottomNavigationBar: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 960), child: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))))),
     );
   }
 }
@@ -327,7 +327,10 @@ class ClientsPage extends StatelessWidget {
         if (snapshot.hasError) return const Text('Não foi possível carregar clientes.');
         if (!snapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(28), child: CircularProgressIndicator()));
         if (snapshot.data!.docs.isEmpty) return const Padding(padding: EdgeInsets.all(20), child: Text('Ainda não há clientes cadastrados.'));
-        return Column(children: snapshot.data!.docs.map((doc) {
+        return LayoutBuilder(builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 1050 ? 3 : constraints.maxWidth >= 680 ? 2 : 1;
+          final cardWidth = (constraints.maxWidth - (columns - 1) * 12) / columns;
+          return Wrap(spacing: 12, runSpacing: 12, children: snapshot.data!.docs.map((doc) {
           final data = doc.data();
           final name = data['name'] as String? ?? 'Cliente';
           final principal = (data['principal'] as num?)?.toDouble() ?? 0;
@@ -338,7 +341,7 @@ class ClientsPage extends StatelessWidget {
           final earningStart = data['earningStartDate'] is Timestamp
               ? (data['earningStartDate'] as Timestamp).toDate()
               : null;
-          return Padding(padding: const EdgeInsets.only(bottom: 12), child: card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          return SizedBox(width: cardWidth, child: card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [CircleAvatar(backgroundColor: violetWash, child: Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(color: violet, fontWeight: FontWeight.bold))), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(data['email'] as String? ?? '', style: const TextStyle(fontSize: 12, color: muted))]))]),
             const Divider(height: 22),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SALDO ATUAL', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .7)), Text(formatMoney(balance), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: ink))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('RENDIMENTO MENSAL', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .7)), Text('${rate.toStringAsFixed(2)}% · ${formatMoney(principal * rate / 100)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: violet))])]),
@@ -351,7 +354,8 @@ class ClientsPage extends StatelessWidget {
             const SizedBox(height: 8),
             Row(children: [const Icon(Icons.flash_on_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text('Disponível para saque imediato: ${formatMoney(immediateAvailable)}', style: const TextStyle(fontSize: 12, color: muted))), TextButton(onPressed: () => editImmediateAvailable(context, doc, balance), child: const Text('Definir'))]),
           ])));
-        }).toList());
+          }).toList());
+        });
       },
     ),
   ]);
@@ -1116,7 +1120,7 @@ void showDates(BuildContext context) => showModalBottomSheet<void>(
 class ClientShell extends StatelessWidget {
   const ClientShell({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: const ClientHome());
+  Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: SafeArea(top: false, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1080), child: const ClientHome()))));
 }
 class ClientHome extends StatelessWidget {
   const ClientHome({super.key});
