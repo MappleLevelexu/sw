@@ -748,6 +748,79 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     }
   }
 
+  Future<void> _editReceiptAmount(BuildContext context, _MonthlyRow row) async {
+    final movementId = row.movementId;
+    if (movementId == null) return;
+    final controller = TextEditingController(text: row.amount.toStringAsFixed(2).replaceAll('.', ','));
+    final newAmount = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Editar valor da receita'),
+        content: TextField(controller: controller, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Novo valor (R\$)')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancelar')),
+          FilledButton(onPressed: () {
+            final value = double.tryParse(controller.text.trim().replaceAll('.', '').replaceAll(',', '.'));
+            Navigator.pop(dialogContext, value);
+          }, child: const Text('Salvar')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (newAmount == null || !newAmount.isFinite || newAmount <= 0 || (newAmount - row.amount).abs() < 0.005) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final movementRef = db.collection('cash_movements').doc(movementId);
+      await db.runTransaction((transaction) async {
+        final movementSnapshot = await transaction.get(movementRef);
+        if (!movementSnapshot.exists) throw StateError('Transação não encontrada.');
+        final movement = movementSnapshot.data()!;
+        if (movement['type'] != 'receipt' || movement['status'] == 'scheduled') throw StateError('Só é possível editar receitas já recebidas.');
+        final oldAmount = (movement['amount'] as num?)?.toDouble() ?? 0;
+        final delta = newAmount - oldAmount;
+        final clientId = movement['clientId'] as String?;
+        final isClientDeposit = clientId != null && movement['kind'] == 'client_deposit';
+        DocumentReference<Map<String, dynamic>>? clientRef;
+        DocumentReference<Map<String, dynamic>>? ledgerRef;
+        DocumentSnapshot<Map<String, dynamic>>? clientSnapshot;
+        DocumentSnapshot<Map<String, dynamic>>? ledgerSnapshot;
+
+        if (isClientDeposit) {
+          clientRef = db.collection('users').doc(clientId);
+          ledgerRef = clientRef.collection('ledger').doc('manual_deposit_$movementId');
+          clientSnapshot = await transaction.get(clientRef);
+          ledgerSnapshot = await transaction.get(ledgerRef);
+          if (!clientSnapshot.exists || clientSnapshot.data() == null) throw StateError('Cliente vinculado não encontrado.');
+        }
+
+        if (clientSnapshot != null && clientRef != null) {
+          final client = clientSnapshot.data()!;
+          final balance = (client['balance'] as num?)?.toDouble() ?? (client['principal'] as num?)?.toDouble() ?? 0;
+          final principal = (client['principal'] as num?)?.toDouble() ?? balance;
+          final totalDeposits = (client['totalDeposits'] as num?)?.toDouble() ?? principal;
+          final updatedBalance = balance + delta;
+          final updatedPrincipal = principal + delta;
+          final updatedTotalDeposits = totalDeposits + delta;
+          if (updatedBalance < -0.005 || updatedPrincipal < -0.005 || updatedTotalDeposits < updatedPrincipal - 0.005) throw StateError('Esse ajuste deixaria os valores do cliente inconsistentes.');
+          transaction.update(clientRef, {'balance': updatedBalance, 'principal': updatedPrincipal, 'totalDeposits': updatedTotalDeposits, 'updatedAt': FieldValue.serverTimestamp()});
+          if (ledgerSnapshot?.exists == true && ledgerRef != null) {
+            final balanceAfter = (ledgerSnapshot!.data()!['balanceAfter'] as num?)?.toDouble();
+            transaction.update(ledgerRef, {'amount': newAmount, if (balanceAfter != null) 'balanceAfter': balanceAfter + delta, 'updatedAt': FieldValue.serverTimestamp()});
+          }
+        }
+
+        transaction.update(movementRef, {'amount': newAmount, 'updatedAt': FieldValue.serverTimestamp()});
+      });
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Valor da receita atualizado.')));
+    } catch (error) {
+      if (context.mounted) {
+        final message = error is StateError ? error.message : 'Não foi possível salvar. Confira sua conexão e as regras do Firestore.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Não foi possível editar a receita: $message')));
+      }
+    }
+  }
+
   Widget _daySection(BuildContext context, DateTime date, List<_MonthlyRow> rows, DateTime today) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
@@ -757,6 +830,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final tone = row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0);
           final iconBackground = row.expense ? const Color(0xFF3A202C) : const Color(0xFF1D342D);
           final futureDate = DateUtils.dateOnly(row.date).isAfter(today);
+          final canEditReceipt = !row.expense && !row.projected && row.status != 'Programada' && row.movementId != null && !futureDate;
           final hasAction = row.projected || ((futureDate || row.status == 'Programada') && row.movementId != null);
           final actionLabel = row.recurringId != null
               ? (row.expense ? (futureDate ? 'Pagar antes' : 'Marcar como pago') : 'Marcar como recebido')
@@ -783,7 +857,10 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
                 ]),
               ])),
               const SizedBox(width: 8),
-              Text('${row.expense ? '−' : '+'} ${formatMoney(row.amount)}', style: TextStyle(fontWeight: FontWeight.w800, color: row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0))),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                Text('${row.expense ? '−' : '+'} ${formatMoney(row.amount)}', style: TextStyle(fontWeight: FontWeight.w800, color: row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0))),
+                if (canEditReceipt) IconButton(tooltip: 'Editar valor da receita', visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32), onPressed: () => _editReceiptAmount(context, row), icon: const Icon(Icons.edit_outlined, size: 17, color: violet)),
+              ]),
             ])),
           );
         }),
