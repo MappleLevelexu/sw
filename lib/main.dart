@@ -881,7 +881,17 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(padding: const EdgeInsets.only(left: 4, bottom: 8), child: Text(_weekdayLabel(date), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink))),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            runSpacing: 4,
+            children: [
+              Text(_weekdayLabel(date), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink)),
+              Text('Saídas do dia: ${formatMoney(rows.where((row) => row.expense).fold<double>(0, (total, row) => total + row.amount))}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFFF718A))),
+            ],
+          ),
+        ),
         ...rows.map((row) {
           final tone = row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0);
           final iconBackground = row.expense ? const Color(0xFF3A202C) : const Color(0xFF1D342D);
