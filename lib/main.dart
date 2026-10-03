@@ -231,15 +231,37 @@ class AdminShell extends StatefulWidget {
 
 class _AdminShellState extends State<AdminShell> {
   int index = 0;
+  bool refreshing = false;
   final titles = ['Visão geral', 'Clientes', 'Caixa', 'Solicitações'];
+
+  Future<void> _refreshData() async {
+    if (refreshing) return;
+    setState(() => refreshing = true);
+    try {
+      final db = FirebaseFirestore.instance;
+      await Future.wait([
+        db.collection('settings').doc('treasury').get(const GetOptions(source: Source.server)),
+        db.collection('cash_movements').get(const GetOptions(source: Source.server)),
+        db.collection('users').where('role', isEqualTo: 'client').get(const GetOptions(source: Source.server)),
+        db.collection('cash_recurring').where('active', isEqualTo: true).get(const GetOptions(source: Source.server)),
+        db.collection('withdrawal_requests').get(const GetOptions(source: Source.server)),
+      ]);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dados atualizados.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível atualizar. Verifique sua conexão.')));
+    } finally {
+      if (mounted) setState(() => refreshing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [const DashboardPage(), const ClientsPage(), const CashPage(), const RequestsPage()];
     return Scaffold(
       extendBody: true,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
-      body: SafeArea(top: false, child: IndexedStack(index: index, children: pages)),
+      appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(tooltip: 'Atualizar dados', onPressed: refreshing ? null : _refreshData, icon: Icon(refreshing ? Icons.sync : Icons.refresh)), IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
+      body: RefreshIndicator(onRefresh: _refreshData, child: SafeArea(top: false, child: IndexedStack(index: index, children: pages))),
       bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
     );
   }
@@ -1427,10 +1449,35 @@ void showDates(BuildContext context) => showModalBottomSheet<void>(
       ),
     );
 
-class ClientShell extends StatelessWidget {
+class ClientShell extends StatefulWidget {
   const ClientShell({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: const ClientHome());
+  State<ClientShell> createState() => _ClientShellState();
+}
+
+class _ClientShellState extends State<ClientShell> {
+  bool refreshing = false;
+
+  Future<void> _refreshData() async {
+    if (refreshing) return;
+    setState(() => refreshing = true);
+    try {
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
+      await Future.wait([
+        userRef.get(const GetOptions(source: Source.server)),
+        userRef.collection('ledger').orderBy('date', descending: true).limit(20).get(const GetOptions(source: Source.server)),
+      ]);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dados atualizados.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível atualizar. Verifique sua conexão.')));
+    } finally {
+      if (mounted) setState(() => refreshing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(tooltip: 'Atualizar dados', onPressed: refreshing ? null : _refreshData, icon: Icon(refreshing ? Icons.sync : Icons.refresh)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: RefreshIndicator(onRefresh: _refreshData, child: const ClientHome()));
 }
 class ClientHome extends StatelessWidget {
   const ClientHome({super.key});
