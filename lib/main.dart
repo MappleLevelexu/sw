@@ -1045,14 +1045,19 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
-          child: Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            runSpacing: 4,
-            children: [
-              Text(_weekdayLabel(date), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink)),
-              Text('Saídas do dia: ${formatMoney(rows.where((row) => row.expense).fold<double>(0, (total, row) => total + row.amount))}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFFF718A))),
-            ],
-          ),
+          child: LayoutBuilder(builder: (context, constraints) {
+            final dailyOutflow = rows.where((row) => row.expense).fold<double>(0, (total, row) => total + row.amount);
+            final dateLabel = Text(_weekdayLabel(date), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink));
+            final amountLabel = Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: const Color(0x1AFF718A), borderRadius: BorderRadius.circular(10)),
+              child: Text('Saídas do dia: ${formatMoney(dailyOutflow)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFFF718A))),
+            );
+            if (constraints.maxWidth < 500) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [dateLabel, const SizedBox(height: 6), amountLabel]);
+            }
+            return Row(children: [Expanded(child: dateLabel), amountLabel]);
+          }),
         ),
         ...rows.map((row) {
           final tone = row.expense ? const Color(0xFFFF718A) : const Color(0xFF58D6A0);
@@ -1198,6 +1203,108 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
                 metricItem('SAÍDAS PREVISTAS', monthForecast, const Color(0xFFFF718A)),
               ]);
             })),
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance.collection('settings').doc('treasury').snapshots(),
+            builder: (context, settingsSnapshot) {
+              if (settingsSnapshot.hasError || !settingsSnapshot.hasData) return const SizedBox.shrink();
+              final openingCapital = (settingsSnapshot.data!.data()?['initialCapital'] as num?)?.toDouble() ?? 0;
+              final now = DateTime.now();
+              final completedMovements = movementSnapshot.data!.docs.where((doc) {
+                final data = doc.data();
+                final date = data['date'];
+                return date is Timestamp && !date.toDate().isAfter(now) && data['status'] != 'scheduled';
+              });
+              final cashNow = completedMovements.fold<double>(openingCapital, (cash, doc) {
+                final data = doc.data();
+                final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+                return cash + (data['type'] == 'receipt' ? amount : -amount);
+              });
+              final selectedMonthEnd = DateTime(month.year, month.month + 1);
+              final currentMonthStart = DateTime(now.year, now.month);
+              final isHistoricalMonth = !selectedMonthEnd.isAfter(currentMonthStart);
+              double projectedCash;
+              if (isHistoricalMonth) {
+                projectedCash = movementSnapshot.data!.docs.where((doc) {
+                  final data = doc.data();
+                  final date = data['date'];
+                  return date is Timestamp && date.toDate().isBefore(selectedMonthEnd) && data['status'] != 'scheduled';
+                }).fold<double>(openingCapital, (cash, doc) {
+                  final data = doc.data();
+                  final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+                  return cash + (data['type'] == 'receipt' ? amount : -amount);
+                });
+              } else {
+                projectedCash = cashNow;
+                for (final doc in movementSnapshot.data!.docs) {
+                  final data = doc.data();
+                  final dateValue = data['date'];
+                  if (dateValue is! Timestamp) continue;
+                  final date = dateValue.toDate();
+                  final completed = data['status'] == 'paid' || data['status'] == 'received';
+                  final pending = data['status'] == 'scheduled' || (date.isAfter(now) && !completed);
+                  if (!pending || !date.isBefore(selectedMonthEnd)) continue;
+                  final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+                  projectedCash += data['type'] == 'receipt' ? amount : -amount;
+                }
+                int monthDay(int year, int monthNumber, int day) {
+                  final lastDay = DateTime(year, monthNumber + 1, 0).day;
+                  return day > lastDay ? lastDay : day;
+                }
+                for (var cursor = currentMonthStart; cursor.isBefore(selectedMonthEnd); cursor = DateTime(cursor.year, cursor.month + 1)) {
+                  final dueMonth = '${cursor.year}-${cursor.month.toString().padLeft(2, '0')}';
+                  for (final clientDoc in clientSnapshot.data!.docs) {
+                    final data = clientDoc.data();
+                    if (data['active'] == false || data['earningDay'] is! num || data['earningStartDate'] is! Timestamp || paidYields.contains('${clientDoc.id}_$dueMonth')) continue;
+                    final earningDay = (data['earningDay'] as num).toInt();
+                    if (earningDay < 1 || earningDay > 31) continue;
+                    final dueDate = DateTime(cursor.year, cursor.month, monthDay(cursor.year, cursor.month, earningDay));
+                    final start = DateUtils.dateOnly((data['earningStartDate'] as Timestamp).toDate());
+                    if (dueDate.isBefore(start) || !dueDate.isBefore(selectedMonthEnd)) continue;
+                    final principal = (data['principal'] as num?)?.toDouble() ?? 0;
+                    final rate = (data['monthlyRate'] as num?)?.toDouble() ?? 0;
+                    projectedCash -= principal * rate / 100;
+                  }
+                  for (final recurringDoc in recurringSnapshot.data!.docs) {
+                    final data = recurringDoc.data();
+                    final startValue = data['date'];
+                    if (startValue is! Timestamp) continue;
+                    final start = DateUtils.dateOnly(startValue.toDate());
+                    final offset = (cursor.year - start.year) * 12 + cursor.month - start.month;
+                    final mode = data['repeatMode'] as String? ?? 'temporary';
+                    final count = (data['occurrenceCount'] as num?)?.toInt();
+                    if (offset < 0 || (mode == 'temporary' && (count == null || offset >= count))) continue;
+                    final dueDate = DateTime(cursor.year, cursor.month, monthDay(cursor.year, cursor.month, start.day));
+                    final cancelledMonths = data['cancelledMonths'] as List? ?? const [];
+                    if (dueDate.isBefore(start) || !dueDate.isBefore(selectedMonthEnd) || paidRecurring.contains('${recurringDoc.id}_$dueMonth') || cancelledMonths.contains(dueMonth)) continue;
+                    final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+                    projectedCash += data['type'] == 'receipt' ? amount : -amount;
+                  }
+                }
+              }
+              final positive = projectedCash >= 0;
+              final status = isHistoricalMonth
+                  ? 'Fechamento registrado do mês selecionado.'
+                  : positive
+                      ? 'Com as operações previstas, o caixa fecha positivo.'
+                      : 'Faltam ${formatMoney(projectedCash.abs())} para cobrir as operações previstas.';
+              final tone = positive ? const Color(0xFF58D6A0) : const Color(0xFFFF718A);
+              return SizedBox(
+                width: double.infinity,
+                child: card(Row(children: [
+                  Icon(positive ? Icons.trending_up : Icons.warning_amber_rounded, color: tone, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${isHistoricalMonth ? 'FECHAMENTO REGISTRADO' : 'SALDO PREVISTO'} · ${_monthLabel().toUpperCase()}', style: const TextStyle(fontSize: 10, color: muted, letterSpacing: .4)),
+                    const SizedBox(height: 5),
+                    Text(status, style: TextStyle(fontWeight: FontWeight.w600, color: tone)),
+                  ])),
+                  const SizedBox(width: 12),
+                  Text(formatMoney(projectedCash), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: tone)),
+                ])),
+              );
+            },
           ),
           const SizedBox(height: 12),
           if (rows.isEmpty) card(const Text('Nenhuma transação ou repasse previsto para este mês.', style: TextStyle(color: muted)))
