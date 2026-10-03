@@ -654,6 +654,7 @@ class _MonthlyRow {
   final String? recurringId;
   final String? notes;
   final bool projected;
+  String get selectionKey => movementId ?? (recurringId != null ? 'repeat:$recurringId:$dueMonth' : 'yield:$clientId:$dueMonth');
 }
 
 class FutureYieldSchedule extends StatefulWidget {
@@ -664,6 +665,7 @@ class FutureYieldSchedule extends StatefulWidget {
 
 class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
+  final Set<String> selectedRows = <String>{};
 
   DateTime _dueDate(int year, int month, int requestedDay) {
     final lastDay = DateTime(year, month + 1, 0).day;
@@ -1047,16 +1049,23 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
           child: LayoutBuilder(builder: (context, constraints) {
             final dailyOutflow = rows.where((row) => row.expense).fold<double>(0, (total, row) => total + row.amount);
+            final selectedForDay = rows.where((row) => selectedRows.contains(row.selectionKey)).toList();
+            final selectedTotal = selectedForDay.fold<double>(0, (total, row) => total + row.amount);
             final dateLabel = Text(_weekdayLabel(date), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink));
             final amountLabel = Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(color: const Color(0x1AFF718A), borderRadius: BorderRadius.circular(10)),
               child: Text('Saídas do dia: ${formatMoney(dailyOutflow)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFFF718A))),
             );
+            final selectedLabel = selectedForDay.isNotEmpty ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: violetWash, borderRadius: BorderRadius.circular(10)),
+              child: Text('Selecionados: ${formatMoney(selectedTotal)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: violet)),
+            ) : const SizedBox.shrink();
             if (constraints.maxWidth < 500) {
-              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [dateLabel, const SizedBox(height: 6), amountLabel]);
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [dateLabel, const SizedBox(height: 6), Wrap(spacing: 8, runSpacing: 6, children: [amountLabel, selectedLabel])]);
             }
-            return Row(children: [Expanded(child: dateLabel), amountLabel]);
+            return Row(children: [Expanded(child: dateLabel), if (selectedForDay.isNotEmpty) ...[selectedLabel, const SizedBox(width: 8)], amountLabel]);
           }),
         ),
         ...rows.map((row) {
@@ -1076,6 +1085,8 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
               borderRadius: BorderRadius.circular(20),
               onTap: () => _showTransactionDetails(context, row),
               child: card(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(width: 36, child: Checkbox(value: selectedRows.contains(row.selectionKey), visualDensity: VisualDensity.compact, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap, activeColor: violet, onChanged: (checked) => setState(() { if (checked == true) { selectedRows.add(row.selectionKey); } else { selectedRows.remove(row.selectionKey); } }))),
+              const SizedBox(width: 4),
               CircleAvatar(backgroundColor: row.projected ? violetWash : iconBackground, child: Icon(row.projected ? Icons.payments_outlined : row.expense ? Icons.north_east : Icons.south_west, color: row.projected ? violet : tone)),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1108,7 +1119,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const SizedBox(height: 4),
-    card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left, color: violet)), Text(_monthLabel(), style: const TextStyle(fontWeight: FontWeight.bold, color: violet)), IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right, color: violet))])),
+    card(Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [IconButton(onPressed: () => setState(() { month = DateTime(month.year, month.month - 1); selectedRows.clear(); }), icon: const Icon(Icons.chevron_left, color: violet)), Text(_monthLabel(), style: const TextStyle(fontWeight: FontWeight.bold, color: violet)), IconButton(onPressed: () => setState(() { month = DateTime(month.year, month.month + 1); selectedRows.clear(); }), icon: const Icon(Icons.chevron_right, color: violet))])),
     const SizedBox(height: 12),
     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('cash_movements').orderBy('date', descending: true).snapshots(), builder: (context, movementSnapshot) {
       if (movementSnapshot.hasError) return const Text('Não foi possível carregar as transações do caixa.');
