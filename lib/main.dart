@@ -255,16 +255,36 @@ class _AdminShellState extends State<AdminShell> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, constraints) {
+    final desktop = constraints.maxWidth >= 1000;
+    final extendedRail = constraints.maxWidth >= 1350;
     final pages = [const DashboardPage(), const ClientsPage(), const CashPage(), const RequestsPage()];
     return Scaffold(
       extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(tooltip: 'Atualizar dados', onPressed: refreshing ? null : _refreshData, icon: Icon(refreshing ? Icons.sync : Icons.refresh)), IconButton(onPressed: () => showDates(context), icon: const Icon(Icons.calendar_month_outlined)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]),
-      body: RefreshIndicator(onRefresh: _refreshData, child: SafeArea(top: false, child: IndexedStack(index: index, children: pages))),
-      bottomNavigationBar: ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
+      body: RefreshIndicator(onRefresh: _refreshData, child: SafeArea(top: false, child: desktop
+          ? Row(children: [
+              NavigationRail(
+                backgroundColor: surface,
+                extended: extendedRail,
+                labelType: extendedRail ? null : NavigationRailLabelType.all,
+                selectedIndex: index,
+                onDestinationSelected: (value) => setState(() => index = value),
+                destinations: const [
+                  NavigationRailDestination(icon: Icon(Icons.grid_view_rounded), label: Text('Início')),
+                  NavigationRailDestination(icon: Icon(Icons.people_outline), label: Text('Clientes')),
+                  NavigationRailDestination(icon: Icon(Icons.swap_vert_rounded), label: Text('Transações')),
+                  NavigationRailDestination(icon: Icon(Icons.notifications_none), label: Text('Saques')),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1680), child: IndexedStack(index: index, children: pages)))),
+            ])
+          : IndexedStack(index: index, children: pages))),
+      bottomNavigationBar: desktop ? null : ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: NavigationBar(backgroundColor: const Color(0x66161020), indicatorColor: violet.withValues(alpha: .22), selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v), destinations: const [NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Início'), NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'), NavigationDestination(icon: Icon(Icons.swap_vert_rounded), label: 'Transações'), NavigationDestination(icon: Icon(Icons.notifications_none), label: 'Saques')]))),
     );
-  }
+  });
 }
 
 class DashboardPage extends StatelessWidget {
@@ -359,9 +379,12 @@ class DashboardPage extends StatelessWidget {
             const SizedBox(height: 16),
             Row(children: [Expanded(child: metric('RECEITAS REALIZADAS', formatMoney(income), Icons.south_west, const Color(0xFF1D9A70))), const SizedBox(width: 12), Expanded(child: metric('DESPESAS REALIZADAS', formatMoney(expenses), Icons.north_east, const Color(0xFFE05D79)))]),
             const SizedBox(height: 16),
-            card(Column(children: [cashLine('Entradas previstas', '+ ${formatMoney(plannedIncome)}', true), cashLine('Saídas previstas', '− ${formatMoney(plannedExpenses)}', false), const Divider(height: 18), cashLine('Saldo após lançamentos previstos', formatMoney(projectedCash), projectedCash >= 0, bold: true)])),
-            const SizedBox(height: 16),
-            card(Column(children: [cashLine('Capital inicial', formatMoney(openingCapital), true), cashLine('Receitas realizadas', '+ ${formatMoney(income)}', true), cashLine('Despesas realizadas', '− ${formatMoney(expenses)}', false), const Divider(height: 22), cashLine('Caixa disponível', formatMoney(currentCash), currentCash >= 0, bold: true)])),
+            LayoutBuilder(builder: (context, constraints) {
+              final forecastCard = card(Column(children: [cashLine('Entradas previstas', '+ ${formatMoney(plannedIncome)}', true), cashLine('Saídas previstas', '− ${formatMoney(plannedExpenses)}', false), const Divider(height: 18), cashLine('Saldo após lançamentos previstos', formatMoney(projectedCash), projectedCash >= 0, bold: true)]));
+              final cashCard = card(Column(children: [cashLine('Capital inicial', formatMoney(openingCapital), true), cashLine('Receitas realizadas', '+ ${formatMoney(income)}', true), cashLine('Despesas realizadas', '− ${formatMoney(expenses)}', false), const Divider(height: 22), cashLine('Caixa disponível', formatMoney(currentCash), currentCash >= 0, bold: true)]));
+              if (constraints.maxWidth < 900) return Column(children: [forecastCard, const SizedBox(height: 16), cashCard]);
+              return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: forecastCard), const SizedBox(width: 16), Expanded(child: cashCard)]);
+            }),
             const SizedBox(height: 24),
             sectionTitle('Transações recentes', 'Até hoje'),
             const SizedBox(height: 12),
@@ -406,7 +429,10 @@ class ClientsPage extends StatelessWidget {
         if (snapshot.hasError) return const Text('Não foi possível carregar clientes.');
         if (!snapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(28), child: CircularProgressIndicator()));
         if (snapshot.data!.docs.isEmpty) return const Padding(padding: EdgeInsets.all(20), child: Text('Ainda não há clientes cadastrados.'));
-        return Column(children: snapshot.data!.docs.map((doc) {
+        return LayoutBuilder(builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 1500 ? 3 : constraints.maxWidth >= 850 ? 2 : 1;
+          final itemWidth = (constraints.maxWidth - (columns - 1) * 16) / columns;
+          return Wrap(spacing: 16, runSpacing: 16, children: snapshot.data!.docs.map((doc) {
           final data = doc.data();
           final name = data['name'] as String? ?? 'Cliente';
           final principal = (data['principal'] as num?)?.toDouble() ?? 0;
@@ -417,7 +443,7 @@ class ClientsPage extends StatelessWidget {
           final earningStart = data['earningStartDate'] is Timestamp
               ? (data['earningStartDate'] as Timestamp).toDate()
               : null;
-          return Padding(padding: const EdgeInsets.only(bottom: 12), child: card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          return SizedBox(width: itemWidth, child: card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [CircleAvatar(backgroundColor: violetWash, child: Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(color: violet, fontWeight: FontWeight.bold))), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(data['email'] as String? ?? '', style: const TextStyle(fontSize: 12, color: muted))]))]),
             const Divider(height: 22),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('SALDO ATUAL', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .7)), Text(formatMoney(balance), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: ink))]), Column(crossAxisAlignment: CrossAxisAlignment.end, children: [const Text('RENDIMENTO MENSAL', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .7)), Text('${rate.toStringAsFixed(2)}% · ${formatMoney(principal * rate / 100)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: violet))])]),
@@ -433,6 +459,7 @@ class ClientsPage extends StatelessWidget {
             SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => simulateFullWithdrawal(context, doc), icon: const Icon(Icons.calculate_outlined), label: const Text('Simular saque total'))),
           ])));
         }).toList());
+        });
       },
     ),
   ]);
@@ -1391,7 +1418,11 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           ),
           const SizedBox(height: 12),
           if (rows.isEmpty) card(const Text('Nenhuma transação ou repasse previsto para este mês.', style: TextStyle(color: muted)))
-          else ...groupedDays.map((day) => _daySection(context, day, groupedRows[day]!, today)),
+          else LayoutBuilder(builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 1180 ? 2 : 1;
+            final itemWidth = (constraints.maxWidth - (columns - 1) * 18) / columns;
+            return Wrap(spacing: 18, runSpacing: 18, children: groupedDays.map((day) => SizedBox(width: itemWidth, child: _daySection(context, day, groupedRows[day]!, today))).toList());
+          }),
         ]);
         });
       });
@@ -1565,7 +1596,32 @@ class RequestsPage extends StatelessWidget {
       final requests = snapshot.data!.docs;
       final pending = requests.where((d) => d.data()['status'] == 'pending').toList();
       return ListView(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20), children: [const Text('Solicitações', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: ink)), const SizedBox(height: 5), const Text('Revise os pedidos e registre os pagamentos.', style: TextStyle(color: muted)), const SizedBox(height: 20), card(Row(children: [const Icon(Icons.info_outline, color: Color(0xFFFFC266)), const SizedBox(width: 10), Expanded(child: Text('${pending.length} solicitações aguardando análise.', style: const TextStyle(color: Color(0xFFFFD08A), fontWeight: FontWeight.w600)))])), const SizedBox(height: 14), if (requests.isEmpty) card(const Text('Ainda não há solicitações de saque.')),
-        ...requests.map((doc) { final data = doc.data(); final uid = data['userId'] as String? ?? ''; final amount = (data['amount'] as num?)?.toDouble() ?? 0; final created = data['createdAt']; final date = data['requestedDate'] as String? ?? (created is Timestamp ? formatDate(created.toDate()) : ''); final status = data['status'] as String? ?? 'pending'; final pendingRequest = status == 'pending'; final statusText = status == 'completed' ? 'Concluído' : status == 'rejected' ? 'Recusado' : 'Pendente'; final statusColor = status == 'completed' ? const Color(0xFF198768) : status == 'rejected' ? const Color(0xFFE05D79) : muted; return Padding(padding: const EdgeInsets.only(bottom: 12), child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnapshot) { final name = userSnapshot.data?.data()?['name'] as String? ?? 'Cliente'; return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const CircleAvatar(backgroundColor: violetWash, child: Icon(Icons.person_outline, color: violet)), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('$date · $statusText', style: TextStyle(fontSize: 11, color: statusColor))])), Text(formatMoney(amount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink))]), if (status == 'completed') ...[const SizedBox(height: 8), Text('Pago: ${formatMoney((data['paidAmount'] as num?)?.toDouble() ?? amount)}${data['partial'] == true ? ' · Parcial' : ''}', style: const TextStyle(color: Color(0xFF198768), fontWeight: FontWeight.w600))] else if (pendingRequest) ...[const SizedBox(height: 15), Row(children: [Expanded(child: OutlinedButton(onPressed: () => updateWithdrawalStatus(context, doc, 'rejected'), child: const Text('Recusar'))), const SizedBox(width: 10), Expanded(child: FilledButton(onPressed: () => completeWithdrawal(context, doc, name), style: FilledButton.styleFrom(backgroundColor: violet), child: const Text('Concluir saque')))])]])); })); })
+        if (requests.isNotEmpty) LayoutBuilder(builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 1120 ? 2 : 1;
+          final itemWidth = (constraints.maxWidth - (columns - 1) * 16) / columns;
+          return Wrap(spacing: 16, runSpacing: 16, children: requests.map((doc) {
+            final data = doc.data();
+            final uid = data['userId'] as String? ?? '';
+            final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+            final created = data['createdAt'];
+            final date = data['requestedDate'] as String? ?? (created is Timestamp ? formatDate(created.toDate()) : '');
+            final status = data['status'] as String? ?? 'pending';
+            final pendingRequest = status == 'pending';
+            final statusText = status == 'completed' ? 'Concluído' : status == 'rejected' ? 'Recusado' : 'Pendente';
+            final statusColor = status == 'completed' ? const Color(0xFF198768) : status == 'rejected' ? const Color(0xFFE05D79) : muted;
+            return SizedBox(width: itemWidth, child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+              builder: (context, userSnapshot) {
+                final name = userSnapshot.data?.data()?['name'] as String? ?? 'Cliente';
+                return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [const CircleAvatar(backgroundColor: violetWash, child: Icon(Icons.person_outline, color: violet)), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('$date · $statusText', style: TextStyle(fontSize: 11, color: statusColor))])), Text(formatMoney(amount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink))]),
+                  if (status == 'completed') ...[const SizedBox(height: 8), Text('Pago: ${formatMoney((data['paidAmount'] as num?)?.toDouble() ?? amount)}${data['partial'] == true ? ' · Parcial' : ''}', style: const TextStyle(color: Color(0xFF198768), fontWeight: FontWeight.w600))]
+                  else if (pendingRequest) ...[const SizedBox(height: 15), Row(children: [Expanded(child: OutlinedButton(onPressed: () => updateWithdrawalStatus(context, doc, 'rejected'), child: const Text('Recusar'))), const SizedBox(width: 10), Expanded(child: FilledButton(onPressed: () => completeWithdrawal(context, doc, name), style: FilledButton.styleFrom(backgroundColor: violet), child: const Text('Concluir saque')))])]
+                ]));
+              },
+            ));
+          }).toList());
+        })
       ]);
     },
   );
@@ -1691,7 +1747,7 @@ class ClientHome extends StatelessWidget {
         },
       );
 
-  Widget _dashboard(BuildContext context, String name, double principal, double balance, double totalDeposits, double immediateAvailable, double rate, String position, DateTime? nextYield) => ListView(
+  Widget _dashboard(BuildContext context, String name, double principal, double balance, double totalDeposits, double immediateAvailable, double rate, String position, DateTime? nextYield) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1500), child: ListView(
         padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20),
         children: [
           Text('Olá, $name 👋',
@@ -1759,9 +1815,12 @@ class ClientHome extends StatelessWidget {
                     const Color(0xFF1D9A70))),
           ]),
           const SizedBox(height: 16),
-          card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('POSICIONAMENTO DO CAPITAL', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: muted)), const SizedBox(height: 8), Text(position.trim().isEmpty ? 'Esperando alocação.' : position, style: const TextStyle(color: ink))])),
-          const SizedBox(height: 12),
-          card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DISPONÍVEL PARA SAQUE IMEDIATO', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: muted)), const SizedBox(height: 8), Text(formatMoney(immediateAvailable.clamp(0.0, balance)), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: violet)), const SizedBox(height: 4), const Text('Para solicitar um valor maior, fale diretamente com o administrador.', style: TextStyle(fontSize: 12, color: muted))])),
+          LayoutBuilder(builder: (context, constraints) {
+            final positioning = card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('POSICIONAMENTO DO CAPITAL', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: muted)), const SizedBox(height: 8), Text(position.trim().isEmpty ? 'Esperando alocação.' : position, style: const TextStyle(color: ink))]));
+            final available = card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DISPONÍVEL PARA SAQUE IMEDIATO', style: TextStyle(fontSize: 10, letterSpacing: .7, fontWeight: FontWeight.bold, color: muted)), const SizedBox(height: 8), Text(formatMoney(immediateAvailable.clamp(0.0, balance)), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: violet)), const SizedBox(height: 4), const Text('Para solicitar um valor maior, fale diretamente com o administrador.', style: TextStyle(fontSize: 12, color: muted))]));
+            if (constraints.maxWidth < 850) return Column(children: [positioning, const SizedBox(height: 12), available]);
+            return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: positioning), const SizedBox(width: 16), Expanded(child: available)]);
+          }),
           const SizedBox(height: 24),
           sectionTitle('Próximo rendimento', nextYield == null ? 'Data não definida' : shortDateLabel(nextYield)),
           const SizedBox(height: 12),
@@ -1820,7 +1879,7 @@ class ClientHome extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: muted)),
         ],
-      );
+      )));
 }
 void requestWithdraw(BuildContext context, double balance, double immediateAvailable) => showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (_) => _WithdrawalSheet(balance: balance, immediateAvailable: immediateAvailable));
 
