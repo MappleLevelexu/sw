@@ -429,11 +429,83 @@ class ClientsPage extends StatelessWidget {
             Row(children: [const Icon(Icons.account_balance_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text((data['position'] as String?)?.trim().isNotEmpty == true ? data['position'] as String : 'Posicionamento não informado', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: muted))), TextButton(onPressed: () => editClientPosition(context, doc), child: const Text('Editar'))]),
             const SizedBox(height: 8),
             Row(children: [const Icon(Icons.flash_on_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text('Disponível para saque imediato: ${formatMoney(immediateAvailable)}', style: const TextStyle(fontSize: 12, color: muted))), TextButton(onPressed: () => editImmediateAvailable(context, doc, balance), child: const Text('Definir'))]),
+            const SizedBox(height: 10),
+            SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => simulateFullWithdrawal(context, doc), icon: const Icon(Icons.calculate_outlined), label: const Text('Simular saque total'))),
           ])));
         }).toList());
       },
     ),
   ]);
+}
+
+Future<void> simulateFullWithdrawal(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
+  final data = client.data();
+  final earningStart = data['earningStartDate'];
+  final earningDay = data['earningDay'];
+  if (earningStart is! Timestamp || earningDay is! num) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Configure a data de virada do rendimento deste cliente antes da simulação.')));
+    return;
+  }
+  final now = DateUtils.dateOnly(DateTime.now());
+  final firstPossible = nextEarningDate(earningDay.toInt(), earningStart.toDate());
+  final targetDate = await showDatePicker(context: context, initialDate: firstPossible.isBefore(now) ? now : firstPossible, firstDate: now, lastDate: DateTime(2100));
+  if (targetDate == null || !context.mounted) return;
+  try {
+    final movements = await FirebaseFirestore.instance.collection('cash_movements').where('clientId', isEqualTo: client.id).get();
+    final paidMonths = <String>{};
+    for (final movement in movements.docs) {
+      final movementData = movement.data();
+      if (movementData['dueMonth'] is String) paidMonths.add(movementData['dueMonth'] as String);
+    }
+    final principal = (data['principal'] as num?)?.toDouble() ?? 0;
+    final balance = (data['balance'] as num?)?.toDouble() ?? principal;
+    final rate = (data['monthlyRate'] as num?)?.toDouble() ?? 0;
+    final initialDate = DateUtils.dateOnly(earningStart.toDate());
+    final finalDate = DateUtils.dateOnly(targetDate);
+    final earnings = <MapEntry<DateTime, double>>[];
+    var monthCursor = DateTime(now.year, now.month);
+    while (!monthCursor.isAfter(DateTime(finalDate.year, finalDate.month))) {
+      final lastDay = DateTime(monthCursor.year, monthCursor.month + 1, 0).day;
+      final dueDate = DateTime(monthCursor.year, monthCursor.month, earningDay.toInt() > lastDay ? lastDay : earningDay.toInt());
+      final dueMonth = '${monthCursor.year}-${monthCursor.month.toString().padLeft(2, '0')}';
+      if (!dueDate.isBefore(initialDate) && !dueDate.isAfter(finalDate) && !paidMonths.contains(dueMonth)) {
+        earnings.add(MapEntry(dueDate, principal * rate / 100));
+      }
+      monthCursor = DateTime(monthCursor.year, monthCursor.month + 1);
+    }
+    final projectedEarnings = earnings.fold<double>(0, (total, earning) => total + earning.value);
+    final projectedTotal = balance + projectedEarnings;
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Simulação de saque total'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 480),
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${data['name'] as String? ?? 'Cliente'} · até ${formatDate(finalDate)}', style: const TextStyle(color: muted)),
+            const SizedBox(height: 14),
+            _transactionDetailLine('Saldo atual', formatMoney(balance)),
+            _transactionDetailLine('Capital aplicado', formatMoney(principal)),
+            _transactionDetailLine('Rendimento mensal', '${rate.toStringAsFixed(2)}% · ${formatMoney(principal * rate / 100)}'),
+            const Divider(height: 20),
+            const Text('Rendimentos previstos', style: TextStyle(fontWeight: FontWeight.bold, color: ink)),
+            const SizedBox(height: 8),
+            if (earnings.isEmpty) const Text('Nenhuma virada pendente até essa data.', style: TextStyle(color: muted))
+            else ...earnings.map((earning) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [Expanded(child: Text(shortDateLabel(earning.key), style: const TextStyle(color: muted))), Text('+ ${formatMoney(earning.value)}', style: const TextStyle(color: Color(0xFF58D6A0), fontWeight: FontWeight.w700))]))),
+            const Divider(height: 22),
+            _transactionDetailLine('Rendimentos até a data', formatMoney(projectedEarnings), const Color(0xFF58D6A0)),
+            _transactionDetailLine('Saque total estimado', formatMoney(projectedTotal), violet),
+            const SizedBox(height: 6),
+            const Text('Estimativa sem depósitos ou saques futuros; o rendimento segue o capital aplicado atual e não altera o saldo cadastrado.', style: TextStyle(fontSize: 11, color: muted)),
+          ])),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Fechar'))],
+      ),
+    );
+  } catch (_) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível carregar os lançamentos para a simulação.')));
+  }
 }
 
 Future<void> editClientPosition(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
