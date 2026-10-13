@@ -312,24 +312,35 @@ class DashboardPage extends StatelessWidget {
                   if (recurringSnapshot.hasError) return const Center(child: Text('Erro ao carregar previsões recorrentes.'));
                   if (!recurringSnapshot.hasData) return const Center(child: CircularProgressIndicator());
           final now = DateTime.now();
+          final monthStart = DateTime(now.year, now.month);
+          final nextMonth = DateTime(now.year, now.month + 1);
           final actual = movementSnapshot.data!.docs.where((doc) {
             final data = doc.data();
             final date = data['date'];
-            return date is Timestamp && !date.toDate().isAfter(now) && data['status'] != 'scheduled';
+            if (date is! Timestamp || data['status'] == 'scheduled') return false;
+            final movementDate = date.toDate();
+            return !movementDate.isAfter(now) && !movementDate.isBefore(monthStart) && movementDate.isBefore(nextMonth);
           }).toList();
-          final cashActual = actual.where((d) => d.data()['excludeFromCash'] != true);
-          final income = cashActual.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-          final expenses = cashActual.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-          final currentCash = openingCapital + income - expenses;
+          final monthActual = actual.where((d) => d.data()['excludeFromCash'] != true);
+          final income = monthActual.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
+          final expenses = monthActual.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
+          final cashActual = movementSnapshot.data!.docs.where((doc) {
+            final data = doc.data(); final date = data['date'];
+            return date is Timestamp && !date.toDate().isAfter(now) && data['status'] != 'scheduled' && data['excludeFromCash'] != true;
+          });
+          final currentCash = cashActual.fold<double>(openingCapital, (cash, doc) {
+            final data = doc.data(); final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+            return cash + (data['type'] == 'receipt' ? amount : -amount);
+          });
           final planned = movementSnapshot.data!.docs.where((doc) {
             final data = doc.data();
             final date = data['date'];
-            return date is Timestamp && (date.toDate().isAfter(now) || data['status'] == 'scheduled') && data['excludeFromCash'] != true;
+            if (date is! Timestamp || data['excludeFromCash'] == true) return false;
+            final movementDate = date.toDate();
+            return !movementDate.isBefore(monthStart) && movementDate.isBefore(nextMonth) && (movementDate.isAfter(now) || data['status'] == 'scheduled');
           }).toList();
           var plannedIncome = planned.where((d) => d.data()['type'] == 'receipt').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
           var plannedExpenses = planned.where((d) => d.data()['type'] == 'expense').fold<double>(0, (s, d) => s + ((d.data()['amount'] as num?)?.toDouble() ?? 0));
-          final monthStart = DateTime(now.year, now.month);
-          final nextMonth = DateTime(now.year, now.month + 1);
           final paidYieldKeys = <String>{};
           final paidRecurringKeys = <String>{};
           for (final doc in movementSnapshot.data!.docs) {
@@ -387,7 +398,7 @@ class DashboardPage extends StatelessWidget {
               return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: forecastCard), const SizedBox(width: 16), Expanded(child: cashCard)]);
             }),
             const SizedBox(height: 24),
-            sectionTitle('Transações recentes', 'Até hoje'),
+            sectionTitle('Transações do mês', '${now.month.toString().padLeft(2, '0')}/${now.year}'),
             const SizedBox(height: 12),
             if (actual.isEmpty) card(const Text('Ainda não há receitas ou despesas registradas.', style: TextStyle(color: muted)))
             else ...actual.take(5).map((doc) { final d = doc.data(); final expense = d['type'] == 'expense'; final amount = (d['amount'] as num?)?.toDouble() ?? 0; final date = (d['date'] as Timestamp).toDate(); return Padding(padding: const EdgeInsets.only(bottom: 10), child: card(Row(children: [Icon(expense ? Icons.north_east : Icons.south_west, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(d['description'] as String? ?? (expense ? 'Despesa' : 'Receita'), style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}', style: const TextStyle(fontSize: 11, color: muted))])), Text('${expense ? '−' : '+'} ${formatMoney(amount)}', style: TextStyle(fontWeight: FontWeight.bold, color: expense ? const Color(0xFFE05D79) : const Color(0xFF1D9A70)))]))); }),
@@ -429,11 +440,12 @@ class ClientsPage extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.hasError) return const Text('Não foi possível carregar clientes.');
         if (!snapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(28), child: CircularProgressIndicator()));
-        if (snapshot.data!.docs.isEmpty) return const Padding(padding: EdgeInsets.all(20), child: Text('Ainda não há clientes cadastrados.'));
+        final activeClients = snapshot.data!.docs.where((doc) => doc.data()['active'] != false).toList();
+        if (activeClients.isEmpty) return const Padding(padding: EdgeInsets.all(20), child: Text('Ainda não há clientes cadastrados.'));
         return LayoutBuilder(builder: (context, constraints) {
           final columns = constraints.maxWidth >= 1500 ? 3 : constraints.maxWidth >= 850 ? 2 : 1;
           final itemWidth = (constraints.maxWidth - (columns - 1) * 16) / columns;
-          return Wrap(spacing: 16, runSpacing: 16, children: snapshot.data!.docs.map((doc) {
+          return Wrap(spacing: 16, runSpacing: 16, children: activeClients.map((doc) {
           final data = doc.data();
           final name = data['name'] as String? ?? 'Cliente';
           final principal = (data['principal'] as num?)?.toDouble() ?? 0;
@@ -458,6 +470,12 @@ class ClientsPage extends StatelessWidget {
             const SizedBox(height: 8),
             Row(children: [const Icon(Icons.flash_on_outlined, size: 17, color: violet), const SizedBox(width: 6), Expanded(child: Text('Disponível para saque imediato: ${formatMoney(immediateAvailable)}', style: const TextStyle(fontSize: 12, color: muted))), TextButton(onPressed: () => editImmediateAvailable(context, doc, balance), child: const Text('Definir'))]),
             const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: OutlinedButton.icon(onPressed: () => showClientDetails(context, doc), icon: const Icon(Icons.visibility_outlined), label: const Text('Detalhes'))),
+              const SizedBox(width: 6),
+              IconButton(tooltip: 'Prévia do perfil do cliente', onPressed: () => previewClient(context, doc), icon: const Icon(Icons.open_in_new, color: violet)),
+              IconButton(tooltip: 'Excluir cliente', onPressed: () => archiveClient(context, doc), icon: const Icon(Icons.delete_outline, color: Color(0xFFE05D79))),
+            ]),
             SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => simulateFullWithdrawal(context, doc), icon: const Icon(Icons.calculate_outlined), label: const Text('Simular saque total'))),
           ])));
         }).toList());
@@ -465,6 +483,77 @@ class ClientsPage extends StatelessWidget {
       },
     ),
   ]);
+}
+
+Future<void> showClientDetails(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
+  final data = client.data();
+  final principal = (data['principal'] as num?)?.toDouble() ?? 0;
+  final balance = (data['balance'] as num?)?.toDouble() ?? principal;
+  final start = data['earningStartDate'];
+  await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+    title: Text(data['name'] as String? ?? 'Cliente'),
+    content: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480, maxHeight: 540), child: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      _transactionDetailLine('E-mail', data['email'] as String? ?? 'Não informado'),
+      _transactionDetailLine('Saldo atual', formatMoney(balance)),
+      _transactionDetailLine('Capital aplicado', formatMoney(principal)),
+      _transactionDetailLine('Total depositado', formatMoney((data['totalDeposits'] as num?)?.toDouble() ?? principal)),
+      _transactionDetailLine('Taxa mensal', '${((data['monthlyRate'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}%'),
+      _transactionDetailLine('Virada mensal', start is Timestamp ? 'Dia ${(data['earningDay'] as num?)?.toInt() ?? start.toDate().day}' : 'Não configurada'),
+      _transactionDetailLine('Saque imediato', formatMoney((data['immediateAvailable'] as num?)?.toDouble() ?? 0)),
+      const SizedBox(height: 8),
+      const Text('Posicionamento do capital', style: TextStyle(fontWeight: FontWeight.bold, color: ink)),
+      const SizedBox(height: 4),
+      Text((data['position'] as String?)?.trim().isNotEmpty == true ? data['position'] as String : 'Não informado', style: const TextStyle(color: muted)),
+    ]))),
+    actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Fechar')), FilledButton.icon(onPressed: () { Navigator.pop(dialogContext); editClientDetails(context, client); }, icon: const Icon(Icons.edit_outlined), label: const Text('Editar dados'))],
+  ));
+}
+
+Future<void> editClientDetails(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
+  final name = TextEditingController(text: client.data()['name'] as String? ?? '');
+  final position = TextEditingController(text: client.data()['position'] as String? ?? '');
+  final saved = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+    title: const Text('Editar dados do cliente'),
+    content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, children: [
+      TextField(controller: name, autofocus: true, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Nome')),
+      const SizedBox(height: 12),
+      TextField(controller: position, maxLines: 3, maxLength: 300, decoration: const InputDecoration(labelText: 'Posicionamento do capital')),
+      const SizedBox(height: 4),
+      const Text('O e-mail de acesso fica somente para visualização; a alteração da autenticação exige validação da conta Firebase.', style: TextStyle(fontSize: 11, color: muted)),
+    ])),
+    actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Salvar'))],
+  ));
+  if (saved == true) {
+    if (name.text.trim().isEmpty) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('O nome não pode ficar vazio.')));
+    } else {
+      try { await client.reference.update({'name': name.text.trim(), 'position': position.text.trim(), 'updatedAt': FieldValue.serverTimestamp()}); }
+      catch (_) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível salvar os dados do cliente.'))); }
+    }
+  }
+  name.dispose(); position.dispose();
+}
+
+Future<void> archiveClient(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
+  final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+    title: const Text('Excluir cliente?'),
+    content: Text('O perfil de ${client.data()['name'] as String? ?? 'este cliente'} será desativado e ocultado da lista. O histórico financeiro será preservado. O acesso ao perfil e novos pedidos de saque serão bloqueados pelas regras do Firestore.'),
+    actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB8324B)), child: const Text('Desativar cliente'))],
+  ));
+  if (confirmed != true) return;
+  try {
+    await client.reference.update({'active': false, 'archivedAt': FieldValue.serverTimestamp(), 'updatedAt': FieldValue.serverTimestamp()});
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente desativado; o histórico foi preservado.')));
+  } catch (_) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível desativar o cliente. Confira as regras do Firestore.')));
+  }
+}
+
+Future<void> previewClient(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
+  await showDialog<void>(context: context, builder: (_) => Dialog.fullscreen(child: Scaffold(
+    appBar: AppBar(title: Text('Prévia · ${client.data()['name'] as String? ?? 'Cliente'}'), actions: const [Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Center(child: Text('Somente leitura', style: TextStyle(color: muted))))]),
+    body: ClientHome(clientId: client.id, readOnlyPreview: true),
+  )));
 }
 
 Future<void> editClientMonthlyRate(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> client) async {
@@ -1309,7 +1398,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final expense = data['type'] == 'expense';
           rows.add(_MonthlyRow(date: dueDate, description: data['description'] as String? ?? (expense ? 'Despesa recorrente' : 'Receita recorrente'), category: data['category'] as String? ?? (expense ? 'Despesas' : 'Receitas'), account: data['account'] as String? ?? 'Mesa Principal', amount: (data['amount'] as num?)?.toDouble() ?? 0, expense: expense, status: mode == 'fixed' ? 'Fixa · prevista' : 'Parcela ${monthOffset + 1}/$count', dueMonth: dueMonth, recurringId: recurring.id, notes: data['notes'] as String?, projected: true, excludedFromCash: data['excludeFromCash'] == true));
         }
-        rows.sort((a, b) => a.date.compareTo(b.date));
+        rows.sort((a, b) => b.date.compareTo(a.date));
         final monthIncome = rows.where((r) => !r.excludedFromCash && !r.projected && !r.expense && r.status != 'Programada' && !DateUtils.dateOnly(r.date).isAfter(today)).fold<double>(0, (s, r) => s + r.amount);
         final monthPlannedIncome = rows.where((r) => !r.excludedFromCash && !r.expense && ((r.projected && r.recurringId != null) || (!r.projected && (r.status == 'Programada' || DateUtils.dateOnly(r.date).isAfter(today))))).fold<double>(0, (s, r) => s + r.amount);
         final monthPaidExpenses = rows.where((r) => !r.excludedFromCash && !r.projected && r.expense && r.status != 'Programada' && !r.date.isAfter(today)).fold<double>(0, (s, r) => s + r.amount);
@@ -1319,7 +1408,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final day = DateUtils.dateOnly(row.date);
           groupedRows.putIfAbsent(day, () => <_MonthlyRow>[]).add(row);
         }
-        final groupedDays = groupedRows.keys.toList()..sort();
+        final groupedDays = groupedRows.keys.toList()..sort((a, b) => b.compareTo(a));
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
             width: double.infinity,
@@ -1430,7 +1519,10 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
               final tone = positive ? const Color(0xFF58D6A0) : const Color(0xFFFF718A);
               return SizedBox(
                 width: double.infinity,
-                child: card(Row(children: [
+                child: card(Column(children: [
+                  cashLine('Saldo atual da mesa', formatMoney(cashNow), cashNow >= 0, bold: true),
+                  const Divider(height: 16),
+                  Row(children: [
                   Icon(positive ? Icons.trending_up : Icons.warning_amber_rounded, color: tone, size: 24),
                   const SizedBox(width: 12),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1440,6 +1532,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
                   ])),
                   const SizedBox(width: 12),
                   Text(formatMoney(projectedCash), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: tone)),
+                  ]),
                 ])),
               );
             },
@@ -1758,10 +1851,13 @@ class _ClientShellState extends State<ClientShell> {
   Widget build(BuildContext context) => Scaffold(extendBodyBehindAppBar: true, appBar: AppBar(flexibleSpace: glassBarSurface(), title: purpleCoreLogo(iconSize: 34, titleSize: 20), actions: [IconButton(tooltip: 'Atualizar dados', onPressed: refreshing ? null : _refreshData, icon: Icon(refreshing ? Icons.sync : Icons.refresh)), IconButton(onPressed: () => logout(context), icon: const Icon(Icons.logout))]), body: RefreshIndicator(onRefresh: _refreshData, child: const ClientHome()));
 }
 class ClientHome extends StatelessWidget {
-  const ClientHome({super.key});
+  const ClientHome({super.key, this.clientId, this.readOnlyPreview = false});
+  final String? clientId;
+  final bool readOnlyPreview;
+  String get userId => clientId ?? FirebaseAuth.instance.currentUser!.uid;
   @override
   Widget build(BuildContext context) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('users').doc(FirebaseAuth.instance.currentUser!.uid).snapshots(),
+        stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Não foi possível carregar seu saldo. Confira as regras do Firestore.')));
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
@@ -1775,12 +1871,13 @@ class ClientHome extends StatelessWidget {
           final earningStartDate = data['earningStartDate'] is Timestamp ? (data['earningStartDate'] as Timestamp).toDate() : null;
           final earningDay = (data['earningDay'] as num?)?.toInt() ?? earningStartDate?.day;
           final nextYield = earningDay != null && earningStartDate != null && earningDay >= 1 && earningDay <= 31 ? nextEarningDate(earningDay, earningStartDate) : null;
-          return _dashboard(context, name, principal, balance, totalDeposits, immediateAvailable, rate, data['position'] as String? ?? '', nextYield);
+          if (data['active'] == false) return const Center(child: Text('Este perfil foi desativado.'));
+          return _dashboard(context, name, principal, balance, totalDeposits, immediateAvailable, rate, data['position'] as String? ?? '', nextYield, readOnlyPreview);
         },
       );
 
-  Widget _dashboard(BuildContext context, String name, double principal, double balance, double totalDeposits, double immediateAvailable, double rate, String position, DateTime? nextYield) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1500), child: ListView(
-        padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20),
+  Widget _dashboard(BuildContext context, String name, double principal, double balance, double totalDeposits, double immediateAvailable, double rate, String position, DateTime? nextYield, bool readOnlyPreview) => Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1500), child: ListView(
+        padding: EdgeInsets.fromLTRB(20, readOnlyPreview ? 20 : MediaQuery.of(context).padding.top + kToolbarHeight + 20, 20, 20),
         children: [
           Text('Olá, $name 👋',
               style: TextStyle(color: muted)),
@@ -1886,14 +1983,14 @@ class ClientHome extends StatelessWidget {
               style: TextStyle(
                   fontSize: 17, fontWeight: FontWeight.w800, color: ink)),
           const SizedBox(height: 12),
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('users').doc(FirebaseAuth.instance.currentUser!.uid).collection('ledger').orderBy('date', descending: true).limit(20).snapshots(), builder: (context, history) {
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: FirebaseFirestore.instance.collection('users').doc(userId).collection('ledger').orderBy('date', descending: true).limit(20).snapshots(), builder: (context, history) {
             if (history.hasError) return card(const Text('Não foi possível carregar o histórico de saldo.'));
             if (!history.hasData) return card(const Center(child: CircularProgressIndicator()));
             if (history.data!.docs.isEmpty) return card(Column(children: [cashLine('Rendimento mensal estimado', formatMoney(principal * rate / 100), true), const Divider(height: 18), const Text('Os créditos e saques concluídos aparecerão aqui.', style: TextStyle(color: muted, fontSize: 12))]));
             return card(Column(children: history.data!.docs.map((doc) { final entry = doc.data(); final dateValue = entry['date']; final date = dateValue is Timestamp ? formatDate(dateValue.toDate()) : ''; final credit = entry['type'] == 'credit'; final amount = (entry['amount'] as num?)?.toDouble() ?? 0; return Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Row(children: [Icon(credit ? Icons.add_circle_outline : Icons.remove_circle_outline, color: credit ? const Color(0xFF198768) : const Color(0xFFE05D79), size: 19), const SizedBox(width: 9), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(entry['title'] as String? ?? 'Movimentação', style: const TextStyle(fontWeight: FontWeight.bold, color: ink)), Text(date, style: const TextStyle(fontSize: 11, color: muted))])), Text('${credit ? '+' : '−'} ${formatMoney(amount)}', style: TextStyle(color: credit ? const Color(0xFF198768) : const Color(0xFFE05D79), fontWeight: FontWeight.bold))])); }).toList()));
           }),
           const SizedBox(height: 24),
-          SizedBox(
+          if (!readOnlyPreview) SizedBox(
             height: 54,
             child: FilledButton.icon(
               onPressed: immediateAvailable <= 0 ? null : () => requestWithdraw(context, balance, immediateAvailable),
@@ -1907,7 +2004,7 @@ class ClientHome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          const Text('Solicitações sujeitas à aprovação do seu assessor (Junior).',
+          if (!readOnlyPreview) const Text('Solicitações sujeitas à aprovação do seu assessor (Junior).',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: muted)),
         ],
