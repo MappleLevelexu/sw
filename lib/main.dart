@@ -909,11 +909,14 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     try {
       final movementId = 'yield_${row.clientId}_${row.dueMonth}';
       final movementRef = FirebaseFirestore.instance.collection('cash_movements').doc(movementId);
+      final scheduledWithdrawalRef = FirebaseFirestore.instance.collection('cash_movements').doc('scheduled_yield_withdrawal_${row.clientId}_${row.dueMonth}');
       final clientRef = FirebaseFirestore.instance.collection('users').doc(row.clientId);
       final ledgerRef = clientRef.collection('ledger').doc('yield_${row.dueMonth}');
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final existingPayment = await transaction.get(movementRef);
+        final scheduledWithdrawal = await transaction.get(scheduledWithdrawalRef);
         if (existingPayment.exists) throw StateError('Este rendimento já foi registrado como pago.');
+        if (scheduledWithdrawal.exists) throw StateError('Este dividendo já foi substituído por um saque agendado.');
         final clientSnapshot = await transaction.get(clientRef);
         final data = clientSnapshot.data();
         if (!clientSnapshot.exists || data == null) throw StateError('Cliente não encontrado.');
@@ -1002,8 +1005,9 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         final kind = data['kind'] as String?;
         final isClientDeposit = clientId != null && kind == 'client_deposit';
         final isClientWithdrawal = clientId != null && kind == 'manual_client_withdrawal';
+        final isYieldWithdrawal = clientId != null && kind == 'client_yield_withdrawal';
         DocumentSnapshot<Map<String, dynamic>>? clientSnapshot;
-        if (isClientDeposit || isClientWithdrawal) {
+        if (isClientDeposit || isClientWithdrawal || isYieldWithdrawal) {
           clientSnapshot = await transaction.get(FirebaseFirestore.instance.collection('users').doc(clientId));
           if (!clientSnapshot.exists || clientSnapshot.data() == null) throw StateError('Cliente não encontrado.');
         }
@@ -1013,23 +1017,38 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final balance = (clientData['balance'] as num?)?.toDouble() ?? (clientData['principal'] as num?)?.toDouble() ?? 0;
           final principal = (clientData['principal'] as num?)?.toDouble() ?? balance;
           final immediate = (clientData['immediateAvailable'] as num?)?.toDouble() ?? 0;
-          final newBalance = isClientDeposit ? balance + row.amount : balance - row.amount;
+          final yieldAmount = (data['yieldAmount'] as num?)?.toDouble() ?? 0;
           if (isClientWithdrawal && row.amount > balance) throw StateError('O valor ultrapassa o saldo atual do cliente.');
-          final newPrincipal = isClientDeposit ? principal + row.amount : (principal - row.amount).clamp(0.0, principal).toDouble();
+          if (isYieldWithdrawal && row.amount > balance + yieldAmount) throw StateError('O saque supera o saldo atualizado pelo rendimento previsto.');
+          final principalReduction = isYieldWithdrawal
+              ? (row.amount > yieldAmount ? row.amount - yieldAmount : 0.0)
+              : row.amount;
+          final newBalance = isClientDeposit ? balance + row.amount : isYieldWithdrawal ? balance + yieldAmount - row.amount : balance - row.amount;
+          final newPrincipal = isClientDeposit ? principal + row.amount : (principal - principalReduction).clamp(0.0, principal).toDouble();
           transaction.update(clientRef, {
             'balance': newBalance, 'principal': newPrincipal,
             if (isClientDeposit) 'totalDeposits': ((clientData['totalDeposits'] as num?)?.toDouble() ?? principal) + row.amount,
-            if (isClientWithdrawal) 'immediateAvailable': (immediate - row.amount).clamp(0.0, newBalance).toDouble(),
+            if (isClientWithdrawal || isYieldWithdrawal) 'immediateAvailable': (immediate - principalReduction).clamp(0.0, newBalance).toDouble(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-          final ledgerId = '${isClientDeposit ? 'manual_deposit' : 'manual_withdrawal'}_${row.movementId}';
+          final ledgerId = isYieldWithdrawal ? 'yield_withdrawal_${row.movementId}' : '${isClientDeposit ? 'manual_deposit' : 'manual_withdrawal'}_${row.movementId}';
           transaction.set(clientRef.collection('ledger').doc(ledgerId), {
             'type': isClientDeposit ? 'credit' : 'debit',
-            'title': isClientDeposit ? 'Depósito recebido' : 'Retirada paga pelo administrador',
+            'title': isClientDeposit ? 'Depósito recebido' : isYieldWithdrawal ? 'Saque no dia do rendimento' : 'Retirada paga pelo administrador',
             'description': row.description, 'amount': row.amount, 'balanceAfter': newBalance,
+            if (isYieldWithdrawal) 'yieldOffset': yieldAmount,
             'date': Timestamp.fromDate(today), 'createdAt': FieldValue.serverTimestamp(),
             'source': isClientDeposit ? 'manual_deposit' : 'manual_withdrawal',
           });
+          if (isYieldWithdrawal && yieldAmount > 0) {
+            transaction.set(clientRef.collection('ledger').doc('yield_${data['dueMonth']}'), {
+              'type': 'credit', 'title': 'Rendimento do mês creditado',
+              'description': 'Rendimento aplicado antes do saque agendado',
+              'amount': yieldAmount, 'balanceAfter': balance + yieldAmount,
+              'date': Timestamp.fromDate(today), 'createdAt': FieldValue.serverTimestamp(),
+              'source': 'yield', 'dueMonth': data['dueMonth'],
+            });
+          }
         }
         transaction.update(ref, {
           'scheduledDate': Timestamp.fromDate(DateUtils.dateOnly(row.date)),
@@ -1139,6 +1158,16 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
             const Text('Observações', style: TextStyle(fontWeight: FontWeight.bold, color: ink)),
             const SizedBox(height: 6),
             Text(row.notes?.trim().isNotEmpty == true ? row.notes!.trim() : 'Nenhuma observação registrada.', style: const TextStyle(color: muted)),
+            if (row.projected && row.clientId != null && row.dueMonth != null) ...[
+              const SizedBox(height: 18),
+              SizedBox(width: double.infinity, child: FilledButton.icon(
+                onPressed: () => _scheduleWithdrawalFromYield(sheetContext, row),
+                icon: const Icon(Icons.event_available_outlined),
+                label: const Text('Simular / agendar saque nesta data'),
+              )),
+              const SizedBox(height: 6),
+              const Text('O saque substituirá o dividendo previsto deste mês. O saldo do cliente só muda quando você marcar o pagamento.', style: TextStyle(fontSize: 11, color: muted)),
+            ],
             if (row.movementId != null) ...[
               const SizedBox(height: 22),
               SizedBox(
@@ -1177,6 +1206,111 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
     );
   }
 
+  Future<void> _scheduleWithdrawalFromYield(BuildContext context, _MonthlyRow row) async {
+    final clientId = row.clientId;
+    final dueMonth = row.dueMonth;
+    if (clientId == null || dueMonth == null) return;
+    final name = row.description.replaceFirst('Dividendo · ', '');
+    DocumentSnapshot<Map<String, dynamic>> clientSnapshot;
+    try {
+      clientSnapshot = await FirebaseFirestore.instance.collection('users').doc(clientId).get();
+    } catch (_) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível carregar o saldo atual do cliente.')));
+      return;
+    }
+    final clientData = clientSnapshot.data();
+    if (!clientSnapshot.exists || clientData == null || clientData['active'] == false) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível carregar o saldo atual do cliente.')));
+      return;
+    }
+    final currentBalance = (clientData['balance'] as num?)?.toDouble() ?? (clientData['principal'] as num?)?.toDouble() ?? 0;
+    final currentPrincipal = (clientData['principal'] as num?)?.toDouble() ?? currentBalance;
+    final currentRate = (clientData['monthlyRate'] as num?)?.toDouble() ?? 0;
+    final projectedYield = currentPrincipal * currentRate / 100;
+    final estimatedBalance = currentBalance + projectedYield;
+    if (!context.mounted) return;
+    final controller = TextEditingController(text: projectedYield.toStringAsFixed(2).replaceAll('.', ','));
+    final amount = await showDialog<double>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Simular saque no dia do dividendo'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('$name · ${formatDate(row.date)}'),
+        const SizedBox(height: 8),
+        Text('Dividendo previsto: ${formatMoney(projectedYield)}', style: const TextStyle(color: muted)),
+        Text('Saldo estimado no dia: ${formatMoney(estimatedBalance)}', style: const TextStyle(color: violet, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 12),
+        TextField(controller: controller, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: 'Valor do saque (R\$)', helperText: 'Máximo estimado: ${formatMoney(estimatedBalance)}')),
+        const SizedBox(height: 8),
+        const Text('O saque será lançado no lugar do dividendo. Ele não altera o saldo até ser marcado como pago.', style: TextStyle(fontSize: 12, color: muted)),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, double.tryParse(controller.text.trim().replaceAll('.', '').replaceAll(',', '.'))), child: const Text('Simular e agendar'))],
+    ));
+    controller.dispose();
+    if (amount == null) return;
+    if (!amount.isFinite || amount <= 0) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Informe um valor de saque maior que zero.')));
+      return;
+    }
+    if (amount > estimatedBalance) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('O saque supera o saldo estimado de ${formatMoney(estimatedBalance)}.')));
+      return;
+    }
+    if (!context.mounted) return;
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Confirmar simulação'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _transactionDetailLine('Saldo atual', formatMoney(currentBalance)),
+        _transactionDetailLine('Rendimento previsto', '+ ${formatMoney(projectedYield)}', const Color(0xFF58D6A0)),
+        _transactionDetailLine('Saque agendado', '− ${formatMoney(amount)}', const Color(0xFFFF718A)),
+        const Divider(height: 18),
+        _transactionDetailLine('Saldo após o saque', formatMoney(estimatedBalance - amount), violet),
+        const SizedBox(height: 6),
+        const Text('Ao confirmar, o dividendo deste mês será substituído pelo saque. O saldo só será alterado quando o pagamento for concluído.', style: TextStyle(fontSize: 11, color: muted)),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Voltar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Agendar saque'))],
+    ));
+    if (confirmed != true) return;
+    final db = FirebaseFirestore.instance;
+    final userRef = db.collection('users').doc(clientId);
+    final movementRef = db.collection('cash_movements').doc('scheduled_yield_withdrawal_${clientId}_$dueMonth');
+    final paidYieldRef = db.collection('cash_movements').doc('yield_${clientId}_$dueMonth');
+    try {
+      await db.runTransaction((transaction) async {
+        final client = await transaction.get(userRef);
+        final existing = await transaction.get(movementRef);
+        final paidYield = await transaction.get(paidYieldRef);
+        if (!client.exists || client.data() == null || client.data()!['active'] == false) throw StateError('Cliente não encontrado ou desativado.');
+        if (existing.exists) throw StateError('Já existe um saque agendado para este cliente neste mês.');
+        if (paidYield.exists) throw StateError('O dividendo deste mês já foi pago; não é possível substituí-lo por saque.');
+        final clientData = client.data()!;
+        final balance = (clientData['balance'] as num?)?.toDouble() ?? (clientData['principal'] as num?)?.toDouble() ?? 0;
+        final principal = (clientData['principal'] as num?)?.toDouble() ?? balance;
+        final latestYield = principal * ((clientData['monthlyRate'] as num?)?.toDouble() ?? 0) / 100;
+        if ((latestYield - projectedYield).abs() > 0.005) throw StateError('A taxa ou o capital do cliente mudou. Feche e abra novamente a simulação para atualizar os valores.');
+        if (amount > balance + latestYield) throw StateError('O valor supera o saldo atual mais o dividendo estimado (${formatMoney(balance + latestYield)}).');
+        transaction.set(movementRef, {
+          'type': 'expense', 'kind': 'client_yield_withdrawal',
+          'description': 'Saque no dia do dividendo · $name',
+          'category': 'Saques', 'account': 'Mesa Principal',
+          'amount': amount, 'yieldAmount': latestYield,
+          'date': Timestamp.fromDate(DateUtils.dateOnly(row.date)),
+          'scheduledDate': Timestamp.fromDate(DateUtils.dateOnly(row.date)),
+          'status': 'scheduled', 'clientId': clientId, 'dueMonth': dueMonth,
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdBy': FirebaseAuth.instance.currentUser!.uid,
+        });
+      });
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saque de ${formatMoney(amount)} agendado para ${formatDate(row.date)}. O dividendo previsto foi substituído.')));
+        Navigator.pop(context);
+      }
+    } catch (error) {
+      if (context.mounted) {
+        final message = error is StateError ? error.message : 'Não foi possível agendar o saque. Confira as regras do Firestore.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message.toString())));
+      }
+    }
+  }
+
   Future<void> _deleteTransaction(_MonthlyRow row) async {
     final movementId = row.movementId;
     if (movementId == null) return;
@@ -1194,6 +1328,8 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
       DocumentSnapshot<Map<String, dynamic>>? clientSnapshot;
       DocumentReference<Map<String, dynamic>>? ledgerRef;
       DocumentSnapshot<Map<String, dynamic>>? ledgerSnapshot;
+      DocumentReference<Map<String, dynamic>>? yieldLedgerRef;
+      DocumentSnapshot<Map<String, dynamic>>? yieldLedgerSnapshot;
       DocumentReference<Map<String, dynamic>>? requestRef;
       DocumentSnapshot<Map<String, dynamic>>? requestSnapshot;
       DocumentReference<Map<String, dynamic>>? recurringRef;
@@ -1204,11 +1340,12 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         recurringSnapshot = await transaction.get(recurringRef);
       }
 
-      if (completed && clientId != null && ['client_deposit', 'manual_client_withdrawal', 'yield_payment', 'withdrawal'].contains(kind)) {
+      if (completed && clientId != null && ['client_deposit', 'manual_client_withdrawal', 'client_yield_withdrawal', 'yield_payment', 'withdrawal'].contains(kind)) {
         clientRef = db.collection('users').doc(clientId);
         String? ledgerId;
         if (kind == 'client_deposit') ledgerId = 'manual_deposit_$movementId';
         if (kind == 'manual_client_withdrawal') ledgerId = 'manual_withdrawal_$movementId';
+        if (kind == 'client_yield_withdrawal') ledgerId = 'yield_withdrawal_$movementId';
         if (kind == 'yield_payment' && movement['dueMonth'] is String) ledgerId = 'yield_${movement['dueMonth']}';
         if (kind == 'withdrawal' && movement['withdrawalRequestId'] is String) {
           final requestId = movement['withdrawalRequestId'] as String;
@@ -1219,6 +1356,10 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
         if (ledgerId != null) {
           ledgerRef = clientRef.collection('ledger').doc(ledgerId);
           ledgerSnapshot = await transaction.get(ledgerRef);
+        }
+        if (kind == 'client_yield_withdrawal' && movement['dueMonth'] is String) {
+          yieldLedgerRef = clientRef.collection('ledger').doc('yield_${movement['dueMonth']}');
+          yieldLedgerSnapshot = await transaction.get(yieldLedgerRef);
         }
         if (requestRef != null) requestSnapshot = await transaction.get(requestRef);
         if (!clientSnapshot.exists || clientSnapshot.data() == null) throw StateError('O cliente vinculado não foi encontrado; a transação foi mantida para proteger o saldo.');
@@ -1236,6 +1377,12 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           final newTotalDeposits = totalDeposits - amount;
           if (newBalance < -0.005 || newPrincipal < -0.005 || newTotalDeposits < newPrincipal - 0.005) throw StateError('Não é seguro excluir: o cliente já usou parte desse depósito. Ajuste o saldo do cliente primeiro.');
           transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, 'totalDeposits': newTotalDeposits, 'immediateAvailable': immediate.clamp(0.0, newBalance < 0 ? 0.0 : newBalance), 'updatedAt': FieldValue.serverTimestamp()});
+        } else if (kind == 'client_yield_withdrawal') {
+          final yieldAmount = (movement['yieldAmount'] as num?)?.toDouble() ?? 0;
+          final principalReduction = amount > yieldAmount ? amount - yieldAmount : 0.0;
+          final newBalance = balance + amount - yieldAmount;
+          final newPrincipal = (principal + principalReduction).clamp(0.0, totalDeposits).toDouble();
+          transaction.update(clientRef, {'balance': newBalance, 'principal': newPrincipal, 'immediateAvailable': (immediate + principalReduction).clamp(0.0, newBalance), 'updatedAt': FieldValue.serverTimestamp()});
         } else if (kind == 'manual_client_withdrawal' || kind == 'withdrawal') {
           final newBalance = balance + amount;
           final newPrincipal = (principal + amount).clamp(0.0, totalDeposits).toDouble();
@@ -1249,6 +1396,7 @@ class _FutureYieldScheduleState extends State<FutureYieldSchedule> {
           transaction.update(clientRef, {'balance': newBalance, 'immediateAvailable': immediate.clamp(0.0, newBalance), 'updatedAt': FieldValue.serverTimestamp()});
         }
         if (ledgerSnapshot?.exists == true && ledgerRef != null) transaction.delete(ledgerRef);
+        if (yieldLedgerSnapshot?.exists == true && yieldLedgerRef != null) transaction.delete(yieldLedgerRef);
       }
       if (recurringRef != null && recurringSnapshot?.exists == true) {
         transaction.update(recurringRef, {'cancelledMonths': FieldValue.arrayUnion([movement['dueMonth']])});
